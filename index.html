@@ -3,62 +3,51 @@
 <head>
   <meta charset="UTF-8">
   <title>Naviアプリ ダウンロードページ</title>
-  <style>
-    body { font-family: sans-serif; line-height: 1.8; padding: 20px; max-width: 720px; margin: auto; }
-    h1 { color: #2c3e50; }
-    h2 { margin-top: 30px; }
-    .download-btn {
-      display: inline-block;
-      padding: 14px 28px;
-      background: #3498db;
-      color: white;
-      text-decoration: none;
-      border-radius: 8px;
-      font-size: 18px;
-      margin-top: 20px;
-    }
-    .download-btn:hover { background: #2980b9; }
-    .note { background: #f9f9f9; padding: 12px; border-left: 4px solid #3498db; margin-top: 20px; }
-    ul, ol { padding-left: 22px; }
-  </style>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <h1>🚗 Naviアプリ ダウンロード</h1>
+  <header>
+    <h1>🚗 Naviアプリ</h1>
+    <p class="subtitle">ご主人様の特製ナビゲーションアプリにゃ🐾</p>
+  </header>
 
-  <p>
-    Naviアプリは、ご主人様が開発したナビゲーションアプリです。<br>
-    以下の手順に従ってインストールしてくださいにゃ🐾
-  </p>
+  <main>
+    <section class="intro">
+      <p>Naviアプリはシンプルで使いやすいナビゲーションアプリです。<br>
+      以下の手順に従ってインストールしてください。</p>
+    </section>
 
-  <h2>📥 ダウンロード</h2>
-  <p>
-    下のボタンから <b>navi.apk</b> をダウンロードしてください。<br>
-    （スマホで直接アクセスしてDLするのがおすすめにゃ）
-  </p>
-  <a href="navi.apk" class="download-btn">navi.apk をダウンロード</a>
+    <section class="download">
+      <h2>📥 ダウンロード</h2>
+      <p>下のボタンから <b>navi.apk</b> をダウンロードできます。</p>
+      <a href="navi.apk" class="download-btn">navi.apk をダウンロード</a>
+    </section>
 
-  <h2>⚙️ インストール手順</h2>
-  <ol>
-    <li>上のボタンから <b>navi.apk</b> をダウンロードします。</li>
-    <li>Androidの設定を開きます。</li>
-    <li><b>設定 → セキュリティ → 提供元不明のアプリを許可</b> をONにします。</li>
-    <li>ダウンロードしたファイルを開き、インストールを実行します。</li>
-  </ol>
+    <section class="install">
+      <h2>⚙️ インストール手順</h2>
+      <ol>
+        <li>上のボタンから <b>navi.apk</b> をダウンロードします。</li>
+        <li>Androidの設定を開きます。</li>
+        <li><b>設定 → セキュリティ → 提供元不明のアプリを許可</b> をONにします。</li>
+        <li>ダウンロードしたファイルを開き、インストールを実行します。</li>
+      </ol>
+      <div class="note">
+        ⚠️ 初めてapkをインストールする場合、Androidが警告を表示することがあります。<br>
+        「安全であることを確認しました」と案内してあげると安心ですにゃ。
+      </div>
+    </section>
 
-  <div class="note">
-    ⚠️ 初めてapkをインストールする場合、Androidが警告を表示することがあります。<br>
-    「安全であることを確認しました」と案内してあげると安心ですにゃ。
-  </div>
+    <section class="setup">
+      <h2>🛠 初回設定</h2>
+      <ul>
+        <li>アプリ起動後、位置情報アクセスの許可を求められます → <b>許可</b> を選択してください。</li>
+        <li>初回起動時に地図データの読み込みがあります。少し時間がかかります。</li>
+      </ul>
+    </section>
+  </main>
 
-  <h2>🛠 初回設定</h2>
-  <ul>
-    <li>アプリ起動後、位置情報アクセスの許可を求められます → <b>許可</b> を選択してください。</li>
-    <li>初回起動時に地図データの読み込みがあります。少し時間がかかるにゃ。</li>
-  </ul>
-
-  <p>
-    以上でインストールは完了です。<br>
-    快適なナビライフを楽しんでにゃ🐾
-  </p>
+  <footer>
+    <p>© 2025 Naviアプリ | 開発者: ご主人様</p>
+  </footer>
 </body>
 </html>
