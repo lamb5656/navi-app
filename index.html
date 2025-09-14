@@ -8,19 +8,24 @@
 <body>
   <header>
     <h1>🚗 Naviアプリ</h1>
-    <p class="subtitle">ご主人様の特製ナビゲーションアプリにゃ🐾</p>
   </header>
 
   <main>
     <section class="intro">
-      <p>Naviアプリはシンプルで使いやすいナビゲーションアプリです。<br>
-      以下の手順に従ってインストールしてください。</p>
+      <p>当アプリはどうにかしてナビ音声を変更したいがために素人が作ったナビゲーションアプリです。<br>
+      面倒と感じない方は以下の手順に従ってインストールしてください。<br><br>
+      必要なもの<br>
+      ・Android端末<br>
+      ・クレジットカード(Mapboxの登録に必須)<br>
+        Mapboxには無料枠があり超過した場合のみ費用がかかりますが、<br>
+        取得したトークンを公開したり配布しない限りは、個人利用で無料枠を超過するのはほぼ不可能です。<br>
+      </p>
     </section>
 
     <section class="download">
       <h2>📥 ダウンロード</h2>
       <p>下のボタンから <b>navi.apk</b> をダウンロードできます。</p>
-      <a href="navi.apk" class="download-btn">navi.apk をダウンロード</a>
+      <a href="https://github.com/lamb5656/navi-app/releases/download/v1.0.0/navi.apk" class="download-btn">navi.apk をダウンロード</a>
     </section>
 
     <section class="install">
@@ -28,26 +33,59 @@
       <ol>
         <li>上のボタンから <b>navi.apk</b> をダウンロードします。</li>
         <li>Androidの設定を開きます。</li>
-        <li><b>設定 → セキュリティ → 提供元不明のアプリを許可</b> をONにします。</li>
+        <li>設定 → セキュリティ → 提供元不明のアプリを許可</b> をONにします。</li>
         <li>ダウンロードしたファイルを開き、インストールを実行します。</li>
-      </ol>
-      <div class="note">
-        ⚠️ 初めてapkをインストールする場合、Androidが警告を表示することがあります。<br>
-        「安全であることを確認しました」と案内してあげると安心ですにゃ。
-      </div>
-    </section>
-
-    <section class="setup">
-      <h2>🛠 初回設定</h2>
-      <ul>
         <li>アプリ起動後、位置情報アクセスの許可を求められます → <b>許可</b> を選択してください。</li>
-        <li>初回起動時に地図データの読み込みがあります。少し時間がかかります。</li>
-      </ul>
+      </ol>
     </section>
-  </main>
 
-  <footer>
-    <p>© 2025 Naviアプリ | 開発者: ご主人様</p>
-  </footer>
+    <section class="install">
+      <h2>🗺️ Mapboxでトークン取得</h2>
+      <ol>
+        <li><a href="https://account.mapbox.com/auth/signup/?page=/" target=”_blank”>Mapboxで新規登録</a></li>
+        <li>ユーザー登録(パスワードは大文字小文字記号の複合が必須)<br><img src="image01.jpg"></li>
+        <li>クレジットカードの登録<br><img src="image02.jpg"></li>
+        <li><a href="https://account.mapbox.com/auth/signin/" target=”_blank”>登録したアカウントでログイン</a></li>
+        <li>左上の三本線からTokensを押す<br><img src="image03.jpg"></li>
+        <li>Create a Tokenボタンを押す<br><img src="image04.jpg"></li>
+        <li>Nameには適当にnaviとかを入力して画面一番下のCreate tokenボタンを押す<br><img src="image05.jpg"></li>
+        <li>トークンが出来上がるのでボタンを押してコピー<br><img src="image06.jpg"></li>
+        <li>コピーしたトークンをアプリの地図トークンに貼り付け<br><img src="image07.jpg"><br><img src="image08.jpg"></li>
+        <li>保存を押して背景の地図が読み込まれたら成功！読み込まれなかったら何か失敗してます。</li>
+      </ol>
+    </section>
+
+    <section class="install">
+      <h2>🗺️ Mapboxでトークン取得</h2>
+      <ol>
+        <li><a href="https://account.mapbox.com/auth/signup/?page=/" target=”_blank”>Mapboxで新規登録</a></li>
+        <li>ユーザー登録(パスワードは大文字小文字記号の複合が必須)<br><img src="image01.jpg"></li>
+        <li>クレジットカードの登録<br><img src="image02.jpg"></li>
+        <li><a href="https://account.mapbox.com/auth/signin/" target=”_blank”>登録したアカウントでログイン</a></li>
+        <li>左上の三本線からTokensを押す<br><img src="image03.jpg"></li>
+        <li>Create a Tokenボタンを押す<br><img src="image04.jpg"></li>
+        <li>Nameには適当にnaviとかを入力して画面一番下のCreate tokenボタンを押す<br><img src="image05.jpg"></li>
+        <li>トークンが出来上がるのでボタンを押してコピー<br><img src="image06.jpg"></li>
+        <li>コピーしたトークンをアプリの地図トークンに貼り付け<br><img src="image07.jpg"><br><img src="image08.jpg"></li>
+        <li>保存を押して背景の地図が読み込まれたら成功！読み込まれなかったら何か失敗してます。</li>
+      </ol>
+    </section>
+
+    <section class="install">
+      <h2>📢TTSの設定</h2>
+      <ol>
+        元々ずんだもんに音声案内させたかったのでずんだもん用(VOICEVOX)の設定
+        <li><a href="https://play.google.com/store/apps/details?id=app.shinagawa.voicevoxtts&referrer=utm_source%3Dapkpure.com" target=”_blank”>ボイボTTSをインストール</a></li>
+        <li>ボイボTTSを起動して声の場所をタップ<br><img src="image09.jpg"></li>
+        <li>ずんだもんをダウンロード<br><img src="image10.jpg"></li>
+        <li>Androidの端末設定でテキスト読み上げの項目を開く(Naviアプリから開いてもOK)<br><img src="image11.jpg"></li>
+        <li>優先エンジンをボイボTTSに変更<br><img src="image12.jpg"></li>
+        <li>Naviアプリを起動してTTSテストボタンを押して設定したボイスが流れたら成功！<br><img src="image13.jpg"></li>
+        <li>ずんだ仕様にすると語尾が全部～のだになります<br><img src="image14.jpg"></li>
+        <li>ナビを開始したら右上のスピーカーボタンを一度押してミュートにしてください。デフォルトの声とダブります。<br><img src="image15.jpg"></li>
+      </ol>
+    </section>
+
+  </main>
 </body>
 </html>
