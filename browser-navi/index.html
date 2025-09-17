@@ -73,6 +73,23 @@
     return min;
   };
 
+  let wakeLock = null;
+  async function enableWakeLock() {
+    try {
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', () => {
+        // try to reacquire when released unexpectedly
+        if (document.visibilityState === 'visible') enableWakeLock().catch(()=>{});
+      });
+    } catch (e) {
+      console.warn('WakeLock failed:', e);
+    }
+  }
+  // call from a user gesture (e.g., on "案内開始" click)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && !wakeLock) enableWakeLock();
+  });
+
   // ===== Speech (device TTS) =====
   let preferredVoice = null;
   function pickVoice() {
