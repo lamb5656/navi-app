@@ -30,6 +30,19 @@ body{
   border-radius:999px; background:#fafafa; color:var(--muted); font-size:.85rem;
 }
 
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between; /* 右寄せ配置 */
+}
+.topbar .top-link {
+  font-size: .95rem;
+  text-decoration: none;
+  color: var(--text, #111827);
+  padding: .25rem .5rem;
+}
+.topbar .top-link:hover { text-decoration: underline; }
+
 /* Toolbar */
 .toolbar{
   display:flex; gap:.8rem; flex-wrap:wrap; align-items:center;
@@ -90,6 +103,7 @@ body{
   box-shadow: 0 2px 14px rgba(0,0,0,.12);
   z-index: 60;
 }
+
 .nav-hud .dot{width:6px;height:6px;border-radius:50%;background:#4b5563;}
 .nav-hud .val{font-weight:600;}
 @media (max-width: 420px){ .nav-hud{ bottom: 82px; font-size: .9rem; } }
