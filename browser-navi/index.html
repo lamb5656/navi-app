@@ -9,7 +9,7 @@
   <link rel="stylesheet" href="./styles.css" />
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css"/>
 
-  <!-- 追加の最小スタイル（HUD/トースト） -->
+  <!-- 追加の最小スタイル（HUD/トースト/チェック） -->
   <style>
     /* Floating status toast (does not affect layout) */
     .status-float{
@@ -50,6 +50,11 @@
     .nav-hud .dot{width:6px;height:6px;border-radius:50%;background:#4b5563;}
     .nav-hud .val{font-weight:600;}
     @media (max-width: 420px){ .nav-hud{ bottom: 82px; font-size: .9rem; } }
+
+    /* tiny checkbox style */
+    .opts { display:flex; align-items:center; gap:.8rem; flex-wrap:wrap; }
+    .opts label { display:flex; align-items:center; gap:.35rem; font-size:.95rem; }
+    .opts input[type="checkbox"] { width:18px; height:18px; }
   </style>
 </head>
 <body>
@@ -63,6 +68,9 @@
       <button id="searchBtn" class="btn">目的地検索</button>
     </div>
     <div class="actions">
+      <div class="opts">
+        <label><input type="checkbox" id="avoidTolls"> 有料道路回避</label>
+      </div>
       <button id="locBtn" class="btn ghost">現在地へ</button>
       <button id="startBtn" class="btn primary">案内開始</button>
       <button id="stopBtn" class="btn danger">停止</button>
@@ -74,13 +82,12 @@
   <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
   <script>
   // ===== Settings =====
-  // Cloudflare Workers (ors-proxy) のURL（末尾スラ無し）
-  const API_BASE = "https://ors-proxy.lamb565.workers.dev";
+  const API_BASE = "https://ors-proxy.lamb565.workers.dev"; // ← あなたのWorkers URL
   const PROFILE = "driving-car";
 
   // Guidance thresholds
-  const PREVIEW_M = 300;     // 300m先で予告
-  const EXECUTE_M = 40;      // 直前案内
+  const PREVIEW_M = 300;      // 300m先で予告
+  const EXECUTE_M = 40;       // 直前案内
   const OFF_ROUTE_METERS = 70; // 逸脱でリルート
   const VOICE_LANG_HINT = "ja";
 
@@ -130,7 +137,7 @@
     if (!preferredVoice) preferredVoice = pickVoice();
     if (preferredVoice) u.voice = preferredVoice;
     u.onend = resolve; u.onerror = reject;
-    window.speechSynthesis.cancel(); // avoid queueing too many
+    window.speechSynthesis.cancel();
     window.speechSynthesis.speak(u);
   });
   window.speechSynthesis.onvoiceschanged = () => { preferredVoice = pickVoice(); };
@@ -180,11 +187,14 @@
   });
 
   // ===== Workers proxy APIs =====
-  async function fetchRoute(start, goal){
+  async function fetchRoute(start, goal, opts = {}){
     const res = await fetch(`${API_BASE}/route`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ coordinates: [start, goal] })
+      body: JSON.stringify({
+        coordinates: [start, goal],
+        avoidTolls: !!opts.avoidTolls
+      })
     });
     if (!res.ok) throw new Error("Proxy /route failed");
     return res.json();
@@ -374,7 +384,8 @@
         if (off > OFF_ROUTE_METERS){
           setStatus(`コース外 ${off|0}m → リルート中…`);
           try{
-            const data = await fetchRoute(here, goal);
+            const avoidTolls = document.getElementById('avoidTolls')?.checked;
+            const data = await fetchRoute(here, goal, { avoidTolls });
             const feat = data.features[0];
             routeCoords = feat.geometry.coordinates;
             drawRouteFeature(feat);
@@ -421,11 +432,13 @@
       else destMarker.setLngLat(goal);
 
       const start = userMarker ? userMarker.getLngLat().toArray() : map.getCenter().toArray();
-      const route = await fetchRoute(start, goal);
+      const avoidTolls = document.getElementById('avoidTolls')?.checked;
+      const route = await fetchRoute(start, goal, { avoidTolls });
       const feat = route.features[0];
       drawRouteFeature(feat);
       setupGuidance(feat);
-      setStatus(`目的地: ${label}`);
+
+      setStatus(`目的地: ${label}${avoidTolls?'（有料回避）':''}`);
     }catch(e){
       console.error(e);
       setStatus('検索またはルート取得に失敗');
