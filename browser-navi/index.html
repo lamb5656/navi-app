@@ -4,8 +4,53 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>SwitchVoiceNavi</title>
+
+  <!-- 既存のスタイル（そのまま） -->
   <link rel="stylesheet" href="./styles.css" />
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css"/>
+
+  <!-- 追加の最小スタイル（HUD/トースト） -->
+  <style>
+    /* Floating status toast (does not affect layout) */
+    .status-float{
+      position: fixed;
+      left: 50%;
+      bottom: 12px;
+      transform: translateX(-50%);
+      padding: .35rem .8rem;
+      border: 1px solid var(--line, #e5e7eb);
+      border-radius: 999px;
+      background: rgba(255,255,255,.95);
+      color: var(--text, #111827);
+      font-size: .9rem;
+      box-shadow: 0 2px 12px rgba(0,0,0,.08);
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity .25s ease;
+      z-index: 50;
+    }
+    .status-float.show{ opacity: 1; }
+
+    /* Navigation HUD (ETA & remaining distance) */
+    .nav-hud{
+      position: fixed;
+      left: 50%;
+      bottom: 72px;
+      transform: translateX(-50%);
+      display: flex; gap: 10px; align-items: center;
+      padding: .45rem .8rem;
+      border: 1px solid var(--line, #e5e7eb);
+      border-radius: 999px;
+      background: rgba(255,255,255,.96);
+      color: var(--text, #111827);
+      font-size: .95rem;
+      box-shadow: 0 2px 14px rgba(0,0,0,.12);
+      z-index: 60;
+    }
+    .nav-hud .dot{width:6px;height:6px;border-radius:50%;background:#4b5563;}
+    .nav-hud .val{font-weight:600;}
+    @media (max-width: 420px){ .nav-hud{ bottom: 82px; font-size: .9rem; } }
+  </style>
 </head>
 <body>
   <header class="topbar">
@@ -29,11 +74,14 @@
   <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
   <script>
   // ===== Settings =====
-  // TODO: replace with your Workers endpoint (no trailing slash)
+  // Cloudflare Workers (ors-proxy) のURL（末尾スラ無し）
   const API_BASE = "https://ors-proxy.lamb565.workers.dev";
   const PROFILE = "driving-car";
-  const STEP_TRIGGER_METERS = 35;
-  const OFF_ROUTE_METERS = 70;
+
+  // Guidance thresholds
+  const PREVIEW_M = 300;     // 300m先で予告
+  const EXECUTE_M = 40;      // 直前案内
+  const OFF_ROUTE_METERS = 70; // 逸脱でリルート
   const VOICE_LANG_HINT = "ja";
 
   // ===== Utils =====
@@ -82,9 +130,9 @@
     if (!preferredVoice) preferredVoice = pickVoice();
     if (preferredVoice) u.voice = preferredVoice;
     u.onend = resolve; u.onerror = reject;
-    speechSynthesis.speak(u);
+    window.speechSynthesis.cancel(); // avoid queueing too many
+    window.speechSynthesis.speak(u);
   });
-  // Some browsers populate voices asynchronously
   window.speechSynthesis.onvoiceschanged = () => { preferredVoice = pickVoice(); };
 
   // ===== Map =====
@@ -98,12 +146,8 @@
   map.addControl(new maplibregl.AttributionControl({ compact: true }));
 
   let userMarker, destMarker;
-  let routeCoords = [];
-  let steps = []; // {text, point:[lng,lat]}
-  let stepIdx = 0;
-  let watchId = null;
 
-  // floating toast status (no layout impact)
+  // floating toast status
   let statusEl = null, statusTimer = null;
   function ensureStatusEl(){
     if (!statusEl) {
@@ -114,7 +158,6 @@
     }
     return statusEl;
   }
-  // setStatus(text, sticky?): sticky=true keeps it visible until next update
   function setStatus(text, sticky=false){
     const el = ensureStatusEl();
     el.textContent = text;
@@ -125,7 +168,7 @@
     }
   }
 
-  // Add raster OSM so roads are visible
+  // Add OSM raster so roads are visible
   map.on('load', () => {
     map.addSource('osm', {
       type: 'raster',
@@ -136,7 +179,7 @@
     map.addLayer({ id: 'osm', type: 'raster', source: 'osm' });
   });
 
-  // ===== ORS via Workers proxy =====
+  // ===== Workers proxy APIs =====
   async function fetchRoute(start, goal){
     const res = await fetch(`${API_BASE}/route`, {
       method: "POST",
@@ -146,12 +189,13 @@
     if (!res.ok) throw new Error("Proxy /route failed");
     return res.json();
   }
-  async function geocodeORS(text){
+  async function geocode(text){
     const res = await fetch(`${API_BASE}/geocode?text=${encodeURIComponent(text)}`);
     if (!res.ok) throw new Error("Proxy /geocode failed");
     return res.json();
   }
 
+  // ===== Drawing route =====
   function drawRouteFeature(feature){
     if (!map.getSource('route')){
       map.addSource('route', { type:'geojson', data: feature });
@@ -165,39 +209,149 @@
     map.fitBounds(bounds, { padding: 60, duration: 700 });
   }
 
+  // ===== Guidance core (two-stage prompts + ETA/Distance HUD) =====
+  let routeCoords = [];     // [[lng,lat],...]
+  let orsSteps = [];        // ORS-like: [{instruction, way_points:[i0,i1]}, ...]
+  let cumMeters = [];       // cumulative meters along route
+  let userIdx = 0;          // nearest polyline index for user
+  let stepPreviewed = new Set();
+  let stepExecuted = new Set();
+  let totalDistance = 0;    // meters
+  let totalDuration = 0;    // seconds
+  let lastUserLL = null;    // [lng,lat]
+  let hudEl = null;
+
   function buildStepsFromORS(feature){
     const seg = feature.properties?.segments?.[0];
-    const list = [];
-    if (!seg) return list;
-    const coords = feature.geometry.coordinates;
-    for (const s of (seg.steps||[])){
-      const idx = s.way_points?.[1];
-      const pt = (typeof idx==='number' && coords[idx]) ? coords[idx] : coords[coords.length-1];
-      list.push({ text: s.instruction, point: pt });
+    return Array.isArray(seg?.steps) ? seg.steps.slice() : [];
+  }
+  function buildCumMeters(coords){
+    const cum=[0];
+    for(let i=1;i<coords.length;i++) cum[i]=cum[i-1]+haversine(coords[i-1], coords[i]);
+    return cum;
+  }
+  function nearestIndex(coords, p, guess=0){
+    const W = 80; // search window
+    let start = Math.max(0, guess - W), end = Math.min(coords.length, guess + W);
+    let best = guess, bd = Infinity;
+    for(let i=start;i<end;i++){
+      const d = haversine(coords[i], p);
+      if (d < bd){ bd = d; best = i; }
     }
-    return list;
+    return best;
+  }
+  function ensureHUD(){
+    if (hudEl) return hudEl;
+    hudEl = document.createElement('div');
+    hudEl.className = 'nav-hud';
+    hudEl.innerHTML = `
+      <span class="val" id="hud-dist">-- km</span>
+      <span class="dot"></span>
+      <span class="val" id="hud-eta">--分</span>
+    `;
+    document.body.appendChild(hudEl);
+    return hudEl;
+  }
+  function fmtDistance(m){
+    if (m >= 1000) return (m/1000).toFixed(m>=10000?0:1) + ' km';
+    return Math.max(0, Math.round(m)) + ' m';
+  }
+  function fmtMinutes(sec){
+    const m = Math.ceil(sec/60);
+    return `${m} 分`;
+  }
+  function updateHUD(remMeters, etaSec){
+    ensureHUD();
+    const d = document.getElementById('hud-dist');
+    const e = document.getElementById('hud-eta');
+    if (d) d.textContent = fmtDistance(remMeters);
+    if (e) e.textContent = fmtMinutes(etaSec);
+  }
+  function nextStepIndex(){
+    for (let i=0;i<orsSteps.length;i++){
+      const endIdx = orsSteps[i].way_points?.[1] ?? 0;
+      if (endIdx > userIdx) return i;
+    }
+    return orsSteps.length - 1;
+  }
+  function calcRemainToIdx(targetIdx){
+    targetIdx = Math.max(0, Math.min(targetIdx, cumMeters.length - 1));
+    return Math.max(0, cumMeters[targetIdx] - cumMeters[userIdx]);
+  }
+  function speakLine(t){
+    try{
+      if (typeof speak === 'function') speak(t);
+      else {
+        const u = new SpeechSynthesisUtterance(t);
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(u);
+      }
+    }catch(e){ console.warn('TTS failed', e); }
+  }
+  function onGuideLocation(lng, lat){
+    if (!routeCoords.length) return;
+    lastUserLL = [lng,lat];
+    userIdx = nearestIndex(routeCoords, lastUserLL, userIdx);
+
+    const i = Math.max(0, nextStepIndex());
+    const step = orsSteps[i] || orsSteps[orsSteps.length-1];
+    const endIdx = step?.way_points?.[1] ?? (routeCoords.length-1);
+
+    const remainToNext = calcRemainToIdx(endIdx);
+    const remainTotal  = Math.max(0, totalDistance - cumMeters[userIdx]);
+    const etaSec = totalDuration > 0 && totalDistance > 0
+      ? (remainTotal/totalDistance) * totalDuration
+      : Math.max(1, remainTotal/ (15/3.6)); // fallback 15km/h
+
+    updateHUD(remainTotal, etaSec);
+
+    if (!stepPreviewed.has(i) && remainToNext <= PREVIEW_M){
+      stepPreviewed.add(i);
+      speakLine(`300メートル先、${step.instruction || '進行方向です'}`);
+    }
+    if (!stepExecuted.has(i) && remainToNext <= EXECUTE_M){
+      stepExecuted.add(i);
+      speakLine(`まもなく、${step.instruction || 'そのまま進みます'}`);
+      if (i === orsSteps.length - 1){
+        setStatus('目的地付近です');
+      }
+    }
+  }
+  function setupGuidance(feature){
+    const geom = feature?.geometry;
+    const seg  = feature?.properties?.segments?.[0];
+    routeCoords = Array.isArray(geom?.coordinates) ? geom.coordinates.slice() : [];
+    orsSteps = buildStepsFromORS(feature);
+    cumMeters = buildCumMeters(routeCoords);
+    userIdx = 0;
+    stepPreviewed = new Set();
+    stepExecuted = new Set();
+    totalDistance = Number(seg?.distance || 0);
+    totalDuration = Number(seg?.duration || 0);
+    updateHUD(totalDistance, totalDuration);
+  }
+  function focusOnUser(){
+    if (lastUserLL) {
+      map.easeTo({ center: lastUserLL, zoom: 16, duration: 600 });
+    }
   }
 
-  // ===== Wake Lock (optional)
+  // ===== Wake Lock (optional) =====
   let wakeLock = null;
   async function enableWakeLock() {
     try {
       wakeLock = await navigator.wakeLock.request('screen');
       wakeLock.addEventListener('release', () => {
-        // try to reacquire when released unexpectedly
         if (document.visibilityState === 'visible') enableWakeLock().catch(()=>{});
       });
-    } catch (e) {
-      console.warn('WakeLock failed:', e);
-    }
+    } catch (e) { console.warn('WakeLock failed:', e); }
   }
-  // call from a user gesture (e.g., on "案内開始" click)
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && !wakeLock) enableWakeLock();
   });
 
-
-  // ===== Nav logic =====
+  // ===== Watch & Re-route =====
+  let watchId = null;
   function startWatching(goal){
     if (!navigator.geolocation){ speak('位置情報が使えません'); return; }
     if (watchId !== null){ navigator.geolocation.clearWatch(watchId); watchId = null; }
@@ -211,6 +365,10 @@
         userMarker.setLngLat(here);
       }
 
+      // Two-stage guidance + HUD update
+      onGuideLocation(here[0], here[1]);
+
+      // Re-route if off the path
       if (routeCoords.length >= 2){
         const off = minDistanceToPolyline(here, routeCoords);
         if (off > OFF_ROUTE_METERS){
@@ -219,37 +377,27 @@
             const data = await fetchRoute(here, goal);
             const feat = data.features[0];
             routeCoords = feat.geometry.coordinates;
-            steps = buildStepsFromORS(feat);
-            stepIdx = 0;
             drawRouteFeature(feat);
+            setupGuidance(feat);
             await speak('ルートを再検索しました');
           }catch(e){ console.error(e); }
           return;
-        }
-      }
-
-      const next = steps[stepIdx];
-      if (next){
-        const d = haversine(here, next.point);
-        setStatus(`次案内まで ${d|0}m`);
-        if (d < STEP_TRIGGER_METERS){
-          try{ await speak(next.text); }catch(e){}
-          stepIdx++;
-          if (stepIdx >= steps.length){ setStatus('目的地付近です'); speak('目的地付近です'); }
         }
       }
     }, err => { console.error(err); setStatus('位置情報エラー'); },
        { enableHighAccuracy:true, maximumAge:1000, timeout:10000 });
   }
 
+  // ===== Helpers =====
   async function moveToCurrent(){
     if (!navigator.geolocation){ setStatus('Geolocation非対応'); return; }
     navigator.geolocation.getCurrentPosition(p => {
       const here = [p.coords.longitude, p.coords.latitude];
-      map.setCenter(here);
+      map.easeTo({ center: here, zoom: 16, duration: 600 });
       if (!userMarker) userMarker = new maplibregl.Marker({color:'#333'}).setLngLat(here).addTo(map);
       else userMarker.setLngLat(here);
       setStatus('現在地OK');
+      lastUserLL = here;
     }, () => setStatus('現在地NG'), { enableHighAccuracy:true, timeout:8000 });
   }
 
@@ -261,30 +409,28 @@
     if (!q){ setStatus('住所・スポット名を入力してね'); return; }
     try{
       setStatus('検索中…');
-      const data = await geocodeORS(q);
+      const data = await geocode(q);
       const f = data.features?.[0];
       if (!f) throw new Error('No geocode result');
       const goal = f.geometry.coordinates; // [lng,lat]
-      const label = f.properties?.label 
-                 || f.properties?.display_name 
-                 || f.properties?.name 
+      const label = f.properties?.label
+                 || f.properties?.display_name
+                 || f.properties?.name
                  || '目的地';
       if (!destMarker) destMarker = new maplibregl.Marker({color:'#e63946'}).setLngLat(goal).addTo(map);
       else destMarker.setLngLat(goal);
+
       const start = userMarker ? userMarker.getLngLat().toArray() : map.getCenter().toArray();
       const route = await fetchRoute(start, goal);
       const feat = route.features[0];
-      routeCoords = feat.geometry.coordinates;
-      steps = buildStepsFromORS(feat);
-      stepIdx = 0;
       drawRouteFeature(feat);
+      setupGuidance(feat);
       setStatus(`目的地: ${label}`);
     }catch(e){
       console.error(e);
       setStatus('検索またはルート取得に失敗');
     }
   });
-
   document.getElementById('addr').addEventListener('keydown', (e)=>{
     if(e.key==='Enter') document.getElementById('searchBtn').click();
   });
@@ -296,6 +442,8 @@
       await enableWakeLock();
       const goal = destMarker ? destMarker.getLngLat().toArray() : null;
       if (!goal){ setStatus('先に目的地を設定してね'); return; }
+      // フォーカスを現在地へ
+      moveToCurrent();
       startWatching(goal);
       setStatus('現在地追従中');
     }catch(e){ console.error(e); }
@@ -303,7 +451,7 @@
 
   document.getElementById('stopBtn').addEventListener('click', () => {
     if (watchId !== null){ navigator.geolocation.clearWatch(watchId); watchId = null; }
-    speechSynthesis.cancel();
+    window.speechSynthesis.cancel();
     setStatus('停止しました');
   });
 
@@ -314,6 +462,7 @@
       map.setCenter(here);
       userMarker = new maplibregl.Marker({color:'#333'}).setLngLat(here).addTo(map);
       setStatus('現在地OK：住所検索→案内開始で音声ナビ');
+      lastUserLL = here;
     }, ()=>setStatus('現在地を取得できませんでした'), { enableHighAccuracy:true, timeout:8000 });
   } else {
     setStatus('Geolocation非対応ブラウザ');

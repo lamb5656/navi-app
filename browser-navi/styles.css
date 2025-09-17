@@ -74,6 +74,26 @@ body{
 }
 .status-float.show{ opacity: 1; }
 
+/* floating navigation HUD */
+.nav-hud{
+  position: fixed;
+  left: 50%;
+  bottom: 72px;
+  transform: translateX(-50%);
+  display: flex; gap: 10px; align-items: center;
+  padding: .45rem .8rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255,255,255,.96);
+  color: var(--text);
+  font-size: .95rem;
+  box-shadow: 0 2px 14px rgba(0,0,0,.12);
+  z-index: 60;
+}
+.nav-hud .dot{width:6px;height:6px;border-radius:50%;background:#4b5563;}
+.nav-hud .val{font-weight:600;}
+@media (max-width: 420px){ .nav-hud{ bottom: 82px; font-size: .9rem; } }
+
 /* Map */
 .map{ width:100%; height:calc(100vh - 148px); }
 @media (max-width:640px){
