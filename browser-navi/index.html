@@ -30,7 +30,7 @@
   <script>
   // ===== Settings =====
   // TODO: replace with your Workers endpoint (no trailing slash)
-  const API_BASE = "https://super-leaf-6592.lamb565.workers.dev";
+  const API_BASE = "https://ors-proxy.lamb565.workers.dev";
   const PROFILE = "driving-car";
   const STEP_TRIGGER_METERS = 35;
   const OFF_ROUTE_METERS = 70;
@@ -265,7 +265,10 @@
       const f = data.features?.[0];
       if (!f) throw new Error('No geocode result');
       const goal = f.geometry.coordinates; // [lng,lat]
-      const label = f.properties?.label || f.properties?.name || '目的地';
+      const label = f.properties?.label 
+                 || f.properties?.display_name 
+                 || f.properties?.name 
+                 || '目的地';
       if (!destMarker) destMarker = new maplibregl.Marker({color:'#e63946'}).setLngLat(goal).addTo(map);
       else destMarker.setLngLat(goal);
       const start = userMarker ? userMarker.getLngLat().toArray() : map.getCenter().toArray();
