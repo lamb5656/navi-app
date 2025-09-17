@@ -54,6 +54,26 @@ body{
 .btn.danger{ background:var(--danger); color:#fff; border-color:var(--danger) }
 .btn.ghost{ background:#fff; color:var(--text) }
 
+/* Floating status toast (does not affect layout) */
+.status-float{
+  position: fixed;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  padding: .35rem .8rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255,255,255,.95);
+  color: var(--text);
+  font-size: .9rem;
+  box-shadow: 0 2px 12px rgba(0,0,0,.08);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .25s ease;
+  z-index: 50;
+}
+.status-float.show{ opacity: 1; }
+
 /* Map */
 .map{ width:100%; height:calc(100vh - 148px); }
 @media (max-width:640px){

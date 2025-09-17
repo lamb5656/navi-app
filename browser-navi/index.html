@@ -102,8 +102,28 @@
   let steps = []; // {text, point:[lng,lat]}
   let stepIdx = 0;
   let watchId = null;
-  const $status = document.getElementById('status');
-  const setStatus = t => $status.textContent = t;
+
+  // floating toast status (no layout impact)
+  let statusEl = null, statusTimer = null;
+  function ensureStatusEl(){
+    if (!statusEl) {
+      statusEl = document.createElement('div');
+      statusEl.id = 'status-float';
+      statusEl.className = 'status-float';
+      document.body.appendChild(statusEl);
+    }
+    return statusEl;
+  }
+  // setStatus(text, sticky?): sticky=true keeps it visible until next update
+  function setStatus(text, sticky=false){
+    const el = ensureStatusEl();
+    el.textContent = text;
+    el.classList.add('show');
+    if (!sticky) {
+      clearTimeout(statusTimer);
+      statusTimer = setTimeout(()=> el.classList.remove('show'), 2000);
+    }
+  }
 
   // Add raster OSM so roads are visible
   map.on('load', () => {
@@ -270,7 +290,7 @@
     try{
       preferredVoice = pickVoice();
       await speak('ナビを開始します');
-      await requestWakeLock();
+      await enableWakeLock();
       const goal = destMarker ? destMarker.getLngLat().toArray() : null;
       if (!goal){ setStatus('先に目的地を設定してね'); return; }
       startWatching(goal);
