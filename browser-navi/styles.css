@@ -73,3 +73,8 @@ body.follow-paused .fab{display:inline-block}
 /* ---- optional: keep follow button inline with stop ---- */
 #btn-follow { vertical-align: middle; }
 .controls-row, .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+.search-results { margin-top: 8px; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; background: #fff; }
+.sr-item { display:block; width:100%; text-align:left; padding:10px 12px; border:0; border-bottom:1px solid #eee; background:transparent; cursor:pointer; }
+.sr-item:last-child { border-bottom:0; }
+.sr-empty,.sr-loading,.sr-error { padding:10px 12px; color:#666; }

@@ -1,5 +1,5 @@
 // Simple PWA SW for /browser-navi/ (Cache First app shell, gentle runtime caching)
-const VERSION = 'v1.0.0';
+const VERSION = 'v1.0.1';
 const APP_CACHE = `svnavi-app-${VERSION}`;
 const RUNTIME_CACHE = `svnavi-rt-${VERSION}`;
 const APP_SHELL = [
@@ -66,15 +66,9 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  // ors-proxy APIs → network-first
   if (url.hostname.endsWith('workers.dev')) {
-    e.respondWith(
-      fetch(e.request).then(resp => {
-        const copy = resp.clone();
-        caches.open(RUNTIME_CACHE).then(c => c.put(e.request, copy));
-        return resp;
-      }).catch(() => caches.match(e.request))
-    );
+    // Never cache API responses (avoid stale routes/suggestions)
+    e.respondWith(fetch(e.request));
     return;
   }
 
