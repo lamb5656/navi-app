@@ -1,115 +1,67 @@
 :root{
-  --bg:#ffffff;
-  --text:#1f2937;
-  --muted:#6b7280;
-  --line:#e5e7eb;
-  --brand:#111827;
-  --primary:#2563eb;
-  --danger:#ef4444;
+  --container:1100px;
+  --ink:#0f172a; --muted:#64748b; --brand:#1b6ef3;
+  --map-top:180px;     /* header+toolbar 分 */
+  --map-bottom:140px;  /* HUD 分 */
 }
-
 *{box-sizing:border-box}
-html,body{height:100%}
-body{
-  margin:0;
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Noto Sans JP", "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif;
-  color:var(--text);
-  background:var(--bg);
-}
+html,body{margin:0;padding:0;height:100%}
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"Noto Sans JP",sans-serif;color:var(--ink);background:#f8fafc}
+a{color:#1b6ef3;text-decoration:none} a:hover{text-decoration:underline}
 
-/* Top bar */
-.topbar{
-  display:flex; align-items:center; justify-content:space-between;
-  padding:.6rem .9rem; border-bottom:1px solid var(--line); background:#fff;
-  position:sticky; top:0; z-index:10;
-}
-.brand{ font-weight:700; letter-spacing:.2px; color:var(--brand) }
-.chips{ display:flex; gap:.4rem; flex-wrap:wrap }
-.chip{
-  display:inline-block; padding:.35rem .6rem; border:1px solid var(--line);
-  border-radius:999px; background:#fafafa; color:var(--muted); font-size:.85rem;
-}
-
-.topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between; /* 右寄せ配置 */
-}
-.topbar .top-link {
-  font-size: .95rem;
-  text-decoration: none;
-  color: var(--text, #111827);
-  padding: .25rem .5rem;
-}
-.topbar .top-link:hover { text-decoration: underline; }
+/* Header */
+.header{position:sticky;top:0;z-index:50;background:#fff;border-bottom:1px solid #e2e8f0}
+.header-inner{max-width:var(--container);margin:0 auto;height:56px;display:flex;align-items:center;justify-content:space-between;padding:0 16px}
+.brand{font-weight:700}
+.nav a{margin-left:16px;color:#0f172a}
 
 /* Toolbar */
-.toolbar{
-  display:flex; gap:.8rem; flex-wrap:wrap; align-items:center;
-  padding:.7rem .9rem; border-bottom:1px solid var(--line); background:#fff;
+.toolbar{max-width:var(--container);margin:0 auto;padding:10px 16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;transition:all .25s ease}
+.toolbar input[type="text"]{flex:1;min-width:220px;padding:10px;border:1px solid #e2e8f0;border-radius:10px;background:#fff}
+.btn{display:inline-block;padding:10px 14px;border-radius:999px;border:1px solid #e2e8f0;background:#fff;color:#0f172a;font-weight:600}
+.btn.primary{background:#1b6ef3;border-color:transparent;color:#fff}
+.btn:disabled{opacity:.5;pointer-events:none}
+
+/* Map viewport uses CSS vars for dynamic gaps */
+#map{position:fixed;inset:var(--map-top) 0 var(--map-bottom) 0}
+
+/* HUD */
+.hud{position:fixed;left:0;right:0;bottom:0;background:rgba(255,255,255,.96);border-top:1px solid #e2e8f0}
+.hud-inner{max-width:var(--container);margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px}
+.stat{display:flex;gap:6px;align-items:baseline}.stat b{font-size:20px}
+
+/* Toast & Search card */
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:108px;background:#111827;color:#fff;padding:10px 14px;border-radius:10px;opacity:.96;display:none}
+.card{position:fixed;left:50%;transform:translateX(-50%);top:66px;background:#fff;border:1px solid #e2e8f0;border-radius:12px;box-shadow:0 10px 30px rgba(15,23,42,.08);display:none;min-width:280px;max-width:calc(100vw - 24px)}
+.card header{padding:10px 14px;border-bottom:1px solid #e2e8f0;font-weight:700}
+.card .body{padding:10px 14px}
+.card .item{padding:8px;border-radius:8px;cursor:pointer}
+.card .item:hover{background:#f1f5f9}
+
+/* ====== ナビ中のコンパクト表示 ====== */
+body.navigating { --map-top:66px; }                /* toolbar畳むので map top 縮める */
+body.navigating .toolbar { height:0; padding:0; overflow:hidden; border:0; }
+body.navigating .nav { display:none; }             /* 右上リンクも隠す */
+
+/* 右上：停止ボタン（ナビ中のみ固定表示・赤） */
+#btnStop{
+  position:fixed; top:10px; right:12px; z-index:60; display:none;
+  background:#ef4444; color:#fff; border-color:transparent;
 }
-.search{ display:flex; gap:.5rem; flex:1 1 420px; min-width:260px }
-#addr{
-  flex:1; padding:.6rem .7rem; border:1px solid var(--line); border-radius:.6rem;
-  font-size:1rem; outline:none;
+body.navigating #btnStop{ display:inline-block; }
+body:not(.navigating) #btnStop{ position:static; display:inline-block; background:#fff; color:#0f172a; border:1px solid #e2e8f0; }
+
+/* 右上：追従トグル（停止の左。ナビ中のみ表示） */
+#btnFollowToggle{
+  position:fixed; top:10px; right:112px; z-index:60; display:none;
+  background:#fff; color:#0f172a; border:1px solid #e2e8f0;
 }
-#addr:focus{ border-color:#cbd5e1; box-shadow:0 0 0 3px rgba(37,99,235,.12) }
+body.navigating #btnFollowToggle{ display:inline-block; }
+body:not(.navigating) #btnFollowToggle{ display:none; }
 
-.actions{ display:flex; gap:.5rem; flex-wrap:wrap }
-
-.btn{
-  padding:.6rem 1rem; border:1px solid var(--line); border-radius:.6rem;
-  background:#fff; cursor:pointer; font-weight:600;
-}
-.btn:hover{ filter:brightness(0.98) }
-.btn.primary{ background:var(--primary); color:#fff; border-color:var(--primary) }
-.btn.primary:hover{ filter:brightness(0.96) }
-.btn.danger{ background:var(--danger); color:#fff; border-color:var(--danger) }
-.btn.ghost{ background:#fff; color:var(--text) }
-
-/* Floating status toast (does not affect layout) */
-.status-float{
-  position: fixed;
-  left: 50%;
-  bottom: 12px;
-  transform: translateX(-50%);
-  padding: .35rem .8rem;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: rgba(255,255,255,.95);
-  color: var(--text);
-  font-size: .9rem;
-  box-shadow: 0 2px 12px rgba(0,0,0,.08);
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity .25s ease;
-  z-index: 50;
-}
-.status-float.show{ opacity: 1; }
-
-/* floating navigation HUD */
-.nav-hud{
-  position: fixed;
-  left: 50%;
-  bottom: 72px;
-  transform: translateX(-50%);
-  display: flex; gap: 10px; align-items: center;
-  padding: .45rem .8rem;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: rgba(255,255,255,.96);
-  color: var(--text);
-  font-size: .95rem;
-  box-shadow: 0 2px 14px rgba(0,0,0,.12);
-  z-index: 60;
-}
-
-.nav-hud .dot{width:6px;height:6px;border-radius:50%;background:#4b5563;}
-.nav-hud .val{font-weight:600;}
-@media (max-width: 420px){ .nav-hud{ bottom: 82px; font-size: .9rem; } }
-
-/* Map */
-.map{ width:100%; height:calc(100vh - 148px); }
-@media (max-width:640px){
-  .map{ height:calc(100vh - 180px); }
+@media (max-width:680px){
+  :root{ --map-top:206px; --map-bottom:160px; }
+  body.navigating{ --map-top:66px; }
+  .hud-inner{flex-wrap:wrap}
+  #btnFollowToggle{ right:108px; }
 }
