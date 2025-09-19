@@ -11,38 +11,18 @@ function toast(msg, ms = 2000) {
   setTimeout(() => (t.style.opacity = '0'), ms);
 }
 
-/** 強制表示ヘルパー：開く時だけ .svn-force-open を付与。閉じる時は外す */
+/** 強制表示: 開く時だけ .svn-force-open を付与、閉じる時は外す */
 function ensureForceStyle() {
   let styleTag = document.getElementById('svn-force-style');
   if (!styleTag) {
     styleTag = document.createElement('style');
     styleTag.id = 'svn-force-style';
-    styleTag.textContent = `
-      .svn-force-open{ display:block !important; visibility:visible !important; opacity:1 !important; pointer-events:auto !important; }
-    `;
+    styleTag.textContent = `.svn-force-open{display:block!important;visibility:visible!important;opacity:1!important;pointer-events:auto!important}`;
     document.head.appendChild(styleTag);
   }
 }
-function forceOpen(el) {
-  if (!el) return;
-  ensureForceStyle();
-  el.removeAttribute('hidden');
-  el.removeAttribute('aria-hidden');
-  if (el.inert !== undefined) { try { el.inert = false; } catch {} }
-  el.classList.remove('is-hidden','hidden','d-none','u-hidden');
-  el.style.removeProperty('display');
-  el.style.removeProperty('visibility');
-  el.style.removeProperty('opacity');
-  el.style.removeProperty('pointer-events');
-  el.classList.add('svn-force-open'); // ← 開くときだけ付与
-  if (!el.style.position) el.style.position = 'fixed';
-  if (!el.style.zIndex) el.style.zIndex = '1000';
-}
-function forceClose(el) {
-  if (!el) return;
-  el.classList.remove('svn-force-open'); // ← これで !important を無効化
-  el.style.display = 'none';
-}
+function forceOpen(el){ if(!el) return; ensureForceStyle(); el.classList.add('svn-force-open'); el.style.display=''; }
+function forceClose(el){ if(!el) return; el.classList.remove('svn-force-open'); el.style.display='none'; }
 
 export function bindUI(mapCtrl, navCtrl){
   const $ = (id) => document.getElementById(id);
@@ -54,12 +34,9 @@ export function bindUI(mapCtrl, navCtrl){
     btnStop: $('btnStop'),
     btnFollowToggle: $('btnFollowToggle'),
     btnRecenter: $('btnRecenter'),
-
     avoidTollsToolbar: $('avoidTolls'),
-
     searchCard: $('searchCard'),
     searchList: $('searchList'),
-
     settingsCard: $('settingsCard'),
     btnOpenSettings: $('btnOpenSettings'),
     btnSettingsClose: $('btnSettingsClose'),
@@ -70,11 +47,9 @@ export function bindUI(mapCtrl, navCtrl){
     setTheme: $('setTheme'),
   };
 
-  // 初期UI
   if (els.btnFollowToggle) els.btnFollowToggle.style.display = 'none';
   if (els.btnStop) els.btnStop.disabled = true;
 
-  // 設定の同期
   const syncAvoidUIFromStore = () => {
     const v = !!getSetting('avoidTolls');
     if (els.avoidTollsToolbar) els.avoidTollsToolbar.checked = v;
@@ -89,22 +64,47 @@ export function bindUI(mapCtrl, navCtrl){
   };
   syncAvoidUIFromStore();
 
-  // 検索
+  // ---------- 検索 ----------
   async function geocode(text){
     const url = `${API_BASE}/geocode?text=${encodeURIComponent(text)}`;
-    const res = await withBackoff(() => fetch(url, { headers: { Accept: 'application/json' } }), { retries: 2, base: 400 });
-    if (!res.ok) throw new Error('geocode failed');
-    return res.json();
+    const res = await withBackoff(() => fetch(url, { headers: { Accept: 'application/json' } }), { retries: 1, base: 300 });
+    if (!res.ok) throw new Error(`geocode http ${res.status}`);
+    const data = await res.json();
+    log('geocode raw', data);
+    // 返り値の形を正規化
+    const items = normalizeGeocode(data);
+    log('geocode normalized', items?.length);
+    return items;
   }
-  function openSearchCard(){
-    if (!els.searchCard) return;
-    els.searchCard.style.display = '';
-    forceOpen(els.searchCard);
+
+  function normalizeGeocode(data){
+    // 1) すでに配列
+    if (Array.isArray(data)) return data;
+    // 2) {results: [...]}
+    if (Array.isArray(data?.results)) return data.results;
+    // 3) {data: [...]}
+    if (Array.isArray(data?.data)) return data.data;
+    // 4) {features:[{geometry:{coordinates:[lng,lat]},properties:{display_name}}]}
+    if (Array.isArray(data?.features)) {
+      return data.features
+        .map(f=>{
+          const c = f?.geometry?.coordinates;
+          return c && { lon: Number(c[0]), lat: Number(c[1]), display_name: f?.properties?.display_name || f?.properties?.name || '' };
+        })
+        .filter(Boolean);
+    }
+    // 5) {items:[...]}, {places:[...]} も一応拾う
+    if (Array.isArray(data?.items)) return data.items;
+    if (Array.isArray(data?.places)) return data.places;
+    // 6) Nominatim素の返りが入ってるキー
+    if (Array.isArray(data?.nominatim)) return data.nominatim;
+    // 7) 想定外 → 空
+    return [];
   }
-  function closeSearchCard(){
-    if (!els.searchCard) return;
-    forceClose(els.searchCard);
-  }
+
+  function openSearchCard(){ if (els.searchCard){ forceOpen(els.searchCard); } }
+  function closeSearchCard(){ if (els.searchCard){ forceClose(els.searchCard); } }
+
   function renderSearchResults(items){
     if (!els.searchList) return;
     els.searchList.innerHTML = '';
@@ -112,10 +112,13 @@ export function bindUI(mapCtrl, navCtrl){
       els.searchList.innerHTML = '<div class="sr-empty">候補がありません</div>';
       openSearchCard(); return;
     }
-    items.forEach(it=>{
-      const name = it.display_name || it.name || '名称未設定';
-      const lng  = Number(it.lon ?? it.lng);
-      const lat  = Number(it.lat);
+    for (const it of items){
+      const name = it.display_name || it.name || it.label || '名称未設定';
+      // キー名のゆらぎに対応
+      const lng  = Number(it.lon ?? it.lng ?? it.longitude ?? it.center?.[0]);
+      const lat  = Number(it.lat ?? it.latitude ?? it.center?.[1]);
+      if (!Number.isFinite(lng) || !Number.isFinite(lat)) continue;
+
       const btn  = document.createElement('button');
       btn.type = 'button'; btn.className = 'sr-item'; btn.textContent = name;
       btn.addEventListener('click', ()=>{
@@ -125,25 +128,26 @@ export function bindUI(mapCtrl, navCtrl){
         closeSearchCard(); toast('目的地を設定しました');
       });
       els.searchList.appendChild(btn);
-    });
+    }
     openSearchCard();
   }
+
   async function onSearch(){
     const q = (els.addr?.value || '').trim();
     log('onSearch', q);
     if (!q){ toast('検索ワードを入力してください'); return; }
     if (els.searchList) els.searchList.innerHTML = '<div class="sr-loading">検索中…</div>';
     try {
-      const data = await geocode(q);
-      renderSearchResults(data?.results || data || []);
+      const items = await geocode(q);
+      renderSearchResults(items);
     } catch (err) {
-      console.error(err);
+      console.error('[SVN] geocode error', err);
       if (els.searchList) els.searchList.innerHTML = '<div class="sr-error">検索に失敗しました</div>';
       openSearchCard();
     }
   }
 
-  // ナビ開始/停止
+  // ---------- ナビ開始/停止 ----------
   const state = { goalLngLat: null };
 
   async function resolveHere(){
@@ -164,9 +168,14 @@ export function bindUI(mapCtrl, navCtrl){
       if (!state.goalLngLat){
         const q = (els.addr?.value || '').trim();
         if (q){
-          const data = await geocode(q);
-          const item = (data?.results || data || [])[0];
-          if (item) state.goalLngLat = [Number(item.lon ?? item.lng), Number(item.lat)];
+          const items = await geocode(q);
+          const it = items[0];
+          if (it){
+            state.goalLngLat = [
+              Number(it.lon ?? it.lng ?? it.longitude ?? it.center?.[0]),
+              Number(it.lat ?? it.latitude ?? it.center?.[1]),
+            ];
+          }
         }
       }
       if (!state.goalLngLat){ toast('先に目的地を検索して選択してください'); return; }
@@ -203,7 +212,7 @@ export function bindUI(mapCtrl, navCtrl){
     toast(next ? '追従を有効にしました' : '追従を停止しました');
   }
 
-  // 設定の開閉（.svn-force-open で制御）
+  // ---------- 設定 ----------
   function onOpenSettings(){
     log('onOpenSettings');
     if (!els.settingsCard) return;
@@ -212,7 +221,6 @@ export function bindUI(mapCtrl, navCtrl){
     if (els.setTtsRate)   els.setTtsRate.value   = String(getSetting('ttsSpeed')  ?? 1);
     if (els.setTheme)     els.setTheme.value     = getSetting('theme') || 'auto';
     syncAvoidUIFromStore();
-    els.settingsCard.style.display = '';
     forceOpen(els.settingsCard);
   }
   function onCloseSettings(){
@@ -224,7 +232,7 @@ export function bindUI(mapCtrl, navCtrl){
     if (els.setTtsRate)    setSetting('ttsSpeed',  Number(els.setTtsRate.value));
     if (els.setTheme)      setSetting('theme',     els.setTheme.value);
     syncAvoidUIFromStore();
-    forceClose(els.settingsCard); // ← クラスを外してから display:none
+    forceClose(els.settingsCard);
     toast('設定を保存しました');
   }
 
