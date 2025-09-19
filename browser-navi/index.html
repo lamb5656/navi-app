@@ -7,45 +7,75 @@
   <meta name="description" content="MapLibre × OpenRouteService。二段階音声案内、リルート、HUD、料金回避に対応したブラウザナビ。">
   <meta name="theme-color" content="#0f172a">
 
-  <!-- MapLibre CSS（ローカル優先。無ければ後でJS側でCDNロードしても見た目は動く） -->
+  <!-- MapLibre CSS（ローカル優先。vendor/maplibre-gl.css を同梱している想定） -->
   <link href="./vendor/maplibre-gl.css" rel="stylesheet">
 
   <style>
-    :root{--container:1100px;--ink:#0f172a;--muted:#64748b;--brand:#1b6ef3;}
+    :root{
+      --container:1100px;
+      --ink:#0f172a; --muted:#64748b; --brand:#1b6ef3;
+      --map-top:140px;     /* header+toolbarぶんの上余白 */
+      --map-bottom:140px;  /* HUDぶんの下余白 */
+    }
     *{box-sizing:border-box}
     html,body{margin:0;padding:0;height:100%}
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"Noto Sans JP",sans-serif;color:var(--ink);background:#f8fafc}
+
     a{color:var(--brand);text-decoration:none} a:hover{text-decoration:underline}
+
     .header{position:sticky;top:0;z-index:50;background:#fff;border-bottom:1px solid #e2e8f0}
     .header-inner{max-width:var(--container);margin:0 auto;height:56px;display:flex;align-items:center;justify-content:space-between;padding:0 16px}
     .brand{font-weight:700}
     .nav a{margin-left:16px;color:#0f172a}
-    .toolbar{max-width:var(--container);margin:0 auto;padding:10px 16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+
+    .toolbar{max-width:var(--container);margin:0 auto;padding:10px 16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;transition:all .25s ease}
     .toolbar input[type="text"]{flex:1;min-width:220px;padding:10px;border:1px solid #e2e8f0;border-radius:10px;background:#fff}
     .btn{display:inline-block;padding:10px 14px;border-radius:999px;border:1px solid #e2e8f0;background:#fff;color:#0f172a;font-weight:600}
     .btn.primary{background:#1b6ef3;border-color:transparent;color:#fff}
     .btn:disabled{opacity:.5;pointer-events:none}
-    #map{position:fixed;inset:140px 0 140px 0}
+
+    /* map viewport uses CSS vars for dynamic top/bottom gaps */
+    #map{position:fixed;inset:var(--map-top) 0 var(--map-bottom) 0}
+
     .hud{position:fixed;left:0;right:0;bottom:0;background:rgba(255,255,255,.96);border-top:1px solid #e2e8f0}
     .hud-inner{max-width:var(--container);margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px}
     .stat{display:flex;gap:6px;align-items:baseline}.stat b{font-size:20px}
+
     .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:108px;background:#111827;color:#fff;padding:10px 14px;border-radius:10px;opacity:.96;display:none}
     .card{position:fixed;left:50%;transform:translateX(-50%);top:66px;background:#fff;border:1px solid #e2e8f0;border-radius:12px;box-shadow:0 10px 30px rgba(15,23,42,.08);display:none;min-width:280px;max-width:calc(100vw - 24px)}
     .card header{padding:10px 14px;border-bottom:1px solid #e2e8f0;font-weight:700}
     .card .body{padding:10px 14px}
     .card .item{padding:8px;border-radius:8px;cursor:pointer}
     .card .item:hover{background:#f1f5f9}
-    @media (max-width:680px){#map{inset:166px 0 160px 0}.hud-inner{flex-wrap:wrap}}
+
+    /* ======= ナビ中のコンパクト表示 ======= */
+    body.navigating { --map-top:66px; }                /* toolbarを畳むので map top を縮める */
+    body.navigating .toolbar { height:0; padding:0; overflow:hidden; border:0; }
+    body.navigating .nav { display:none; }             /* 右上リンクは隠す */
+    /* 停止ボタンを右上固定で表示（ナビ中のみ） */
+    #btnStop{
+      position:fixed; top:10px; right:12px; z-index:60; display:none;
+      background:#ef4444; color:#fff; border-color:transparent;
+    }
+    body.navigating #btnStop{ display:inline-block; }
+    /* 通常時はツールバー内の配置で表示 */
+    body:not(.navigating) #btnStop{ position:static; display:inline-block; background:#fff; color:#0f172a; border:1px solid #e2e8f0; }
+
+    @media (max-width:680px){
+      :root{ --map-top:166px; --map-bottom:160px; }
+      body.navigating{ --map-top:66px; } /* ナビ中はスマホでも66px */
+      .hud-inner{flex-wrap:wrap}
+    }
   </style>
 
-  <!-- MapLibre ローダ（ローカル → jsDelivr → unpkg の順）。読み込み後にアプリ起動。 -->
+  <!-- MapLibre ローダ（ローカル → jsDelivr → unpkg）。読み込み後に __boot(start) をコール -->
   <script>
     (function(){
       function loadScript(src, next){var s=document.createElement('script');s.src=src;s.async=false;s.onload=next;s.onerror=next;document.head.appendChild(s);}
       function loadCSS(href){var l=document.createElement('link');l.rel='stylesheet';l.href=href;document.head.appendChild(l);}
       function ensureMaplibre(cb){
         if (window.maplibregl) return cb();
-        // 1) local
+        // 1) local vendor
         loadScript('./vendor/maplibre-gl.js', function(){
           if (window.maplibregl) return cb();
           // 2) jsDelivr
@@ -83,6 +113,7 @@
     <button id="btnSearch" class="btn">検索</button>
     <label><input id="avoidTolls" type="checkbox" checked> 有料道路回避</label>
     <button id="btnStart" class="btn primary">ナビ開始</button>
+    <!-- 停止ボタン：通常はツールバー内、ナビ中は右上固定へ自動切替 -->
     <button id="btnStop" class="btn" disabled>停止</button>
   </div>
 
@@ -176,6 +207,7 @@ function bboxOfCoords(coords){
 const addr=document.getElementById("addr");
 const card=document.getElementById("searchCard");
 const list=document.getElementById("searchList");
+document.getElementById("btnSearch").addEventListener("click", onSearch);
 
 async function onSearch(){
   const q=addr.value.trim(); if(!q) return;
@@ -261,6 +293,11 @@ async function startNav(){
     setStatus("案内中");
     document.getElementById("btnStart").disabled=true;
     document.getElementById("btnStop").disabled=false;
+
+    // === 折りたたみ：ナビ中モード ===
+    document.body.classList.add('navigating');
+    card.style.display = "none"; // 検索候補カードが開いてたら閉じる
+
     if("wakeLock" in navigator && navigator.wakeLock?.request){ try{ wakeLock=await navigator.wakeLock.request("screen"); }catch{} }
     beginWatch();
     speakLine("案内を開始します");
@@ -273,6 +310,10 @@ function stopNav(){
   setStatus("停止中");
   document.getElementById("btnStart").disabled=false;
   document.getElementById("btnStop").disabled=true;
+
+  // === 復元：通常モード ===
+  document.body.classList.remove('navigating');
+
   speakLine("案内を停止しました");
 }
 
@@ -309,17 +350,18 @@ async function beginWatch(){
     if(nextStepIndex>=0){
       const step=steps[nextStepIndex], wp=step.way_points[1];
       const remainToNext=hav(here, routeCoords[wp]);
-      if(!stepPreviewed.has(nextStepIndex) && remainToNext<=PREVIEW_M){
-        const key=stepPreviewKey(step); const now=Date.now(); const last=previewHistory.get(key)||0;
-        if(now-last>=PREVIEW_COOLDOWN_MS){ stepPreviewed.add(nextStepIndex); previewHistory.set(key, now); speakLine(`300メートル先、${step.instruction||"進行方向です"}`); }
+      if(!stepPreviewed.has(nextStepIndex) && remainToNext<=300){
+        const key=(()=>{ const w=step?.way_points?.[1]??-1; const ins=(step?.instruction||"").trim(); return `${w}:${ins}`; })();
+        const now=Date.now(); const last=previewHistory.get(key)||0;
+        if(now-last>=45000){ stepPreviewed.add(nextStepIndex); previewHistory.set(key, now); speakLine(`300メートル先、${step.instruction||"進行方向です"}`); }
       }
-      if(remainToNext<=EXECUTE_M){ speakLine(step.instruction||"その先です"); }
+      if(remainToNext<=40){ speakLine(step.instruction||"その先です"); }
     }
 
     const off=minDistanceToPolyline(here, routeCoords);
-    if(off>OFF_ROUTE_METERS){ offRouteCount++; } else { offRouteCount=0; }
+    if(off>90){ offRouteCount++; } else { offRouteCount=0; }
     const now=Date.now();
-    if(offRouteCount>=OFF_ROUTE_HYST_COUNT && (now-lastRerouteAt)>=REROUTE_COOLDOWN_MS){
+    if(offRouteCount>=3 && (now-lastRerouteAt)>=15000){
       lastRerouteAt=now; setStatus(`コース外 ${off|0}m → リルート中…`);
       try{
         const avoidTolls=document.getElementById("avoidTolls").checked;
