@@ -2,13 +2,28 @@
 import { getSetting, setSetting } from './settings.js';
 import { withBackoff } from './libs/net.js';
 
-/** simple toast */
-export function showToast(msg, ms = 3000) {
+/** toast */
+export function showToast(msg, ms = 2500) {
   const t = document.createElement('div');
   t.className = 'toast';
   t.textContent = msg;
   document.body.appendChild(t);
   setTimeout(() => t.remove(), ms);
+}
+
+/** safe query with fallbacks */
+function $(sel) {
+  return document.querySelector(sel);
+}
+function ensureResultsBox(anchorEl) {
+  let box = $('#search-results');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'search-results';
+    box.className = 'search-results';
+    (anchorEl?.parentElement || document.body).appendChild(box);
+  }
+  return box;
 }
 
 /**
@@ -17,17 +32,17 @@ export function showToast(msg, ms = 3000) {
  * @param {import('./nav.js').NavigationController} navCtrl
  */
 export function bindUI(mapCtrl, navCtrl) {
-  // ---- hide any legacy follow toggle ----
-  const legacy = document.querySelector('#follow-toggle, .follow-toggle, [data-follow-toggle]');
+  // ---- hide legacy follow toggle if any ----
+  const legacy = $('#follow-toggle, .follow-toggle, [data-follow-toggle]');
   if (legacy) legacy.style.display = 'none';
 
-  // ---- settings ----
-  const avoidChk = document.getElementById('chk-avoid');
-  const profileSel = document.getElementById('sel-profile');
+  // ---- settings (avoid tolls / profile) ----
+  const avoidChk = $('#chk-avoid') || $('[name="avoid-tolls"]');
+  const profileSel = $('#sel-profile') || $('[name="profile"]');
 
   if (avoidChk) {
     avoidChk.checked = !!getSetting('avoidTolls');
-    avoidChk.addEventListener('change', () => setSetting('avoidTolls', avoidChk.checked));
+    avoidChk.addEventListener('change', () => setSetting('avoidTolls', !!avoidChk.checked));
   }
   if (profileSel) {
     profileSel.value = getSetting('profile') || 'driving-car';
@@ -35,11 +50,11 @@ export function bindUI(mapCtrl, navCtrl) {
   }
 
   // ---- start/stop/follow ----
-  const startBtn = document.getElementById('btn-start');
-  const stopBtn  = document.getElementById('btn-stop');
+  const startBtn = $('#btn-start') || $('[data-action="start"]');
+  const stopBtn  = $('#btn-stop')  || $('[data-action="stop"]');
 
-  // create follow button left to stop
-  let followBtn = document.getElementById('btn-follow');
+  // dynamic follow button placed left of Stop
+  let followBtn = $('#btn-follow');
   if (!followBtn) {
     followBtn = document.createElement('button');
     followBtn.id = 'btn-follow';
@@ -68,9 +83,10 @@ export function bindUI(mapCtrl, navCtrl) {
   });
 
   if (startBtn) {
-    startBtn.addEventListener('click', async () => {
-      const s = (document.getElementById('start-coord')?.value || '').split(',').map(Number);
-      const g = (document.getElementById('goal-coord')?.value || '').split(',').map(Number);
+    startBtn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      const s = ($('#start-coord')?.value || '').split(',').map(Number);
+      const g = ($('#goal-coord')?.value || '').split(',').map(Number);
       if (s.length === 2 && g.length === 2 && s.every(n => !Number.isNaN(n)) && g.every(n => !Number.isNaN(n))) {
         await navCtrl.start([s, g]);
         followBtn.style.display = '';
@@ -83,30 +99,37 @@ export function bindUI(mapCtrl, navCtrl) {
   }
 
   if (stopBtn) {
-    stopBtn.addEventListener('click', () => {
+    stopBtn.addEventListener('click', (e) => {
+      e.preventDefault();
       navCtrl.stop();
       followBtn.style.display = 'none';
       followBtn.setAttribute('aria-pressed', 'false');
     });
   }
 
-  // ---- search & suggestions ----
-  const searchInput = document.getElementById('search-text');
-  const searchBtn   = document.getElementById('btn-search');
-  let resultsBox    = document.getElementById('search-results');
+  // ---- search (robust binding: button click + form submit) ----
+  const searchInput =
+    $('#search-text') ||
+    $('[name="search"]') ||
+    $('input[type="search"]');
 
-  // create result box if missing
-  if (!resultsBox) {
-    resultsBox = document.createElement('div');
-    resultsBox.id = 'search-results';
-    resultsBox.className = 'search-results';
-    const anchor = (searchBtn && searchBtn.parentElement) || document.body;
-    anchor.appendChild(resultsBox);
-  }
+  const searchBtn =
+    $('#btn-search') ||
+    $('[data-action="search"]') ||
+    (searchInput ? searchInput.closest('form')?.querySelector('button') : null);
+
+  const searchForm =
+    $('#search-form') ||
+    (searchInput ? searchInput.closest('form') : null);
+
+  const resultsBox = ensureResultsBox(searchBtn || searchInput);
 
   async function geocode(text) {
     const url = `${API_BASE}/geocode?text=${encodeURIComponent(text)}`;
-    const res = await withBackoff(() => fetch(url, { headers: { 'Accept': 'application/json' }}), { retries: 2, base: 400 });
+    const res = await withBackoff(
+      () => fetch(url, { headers: { Accept: 'application/json' } }),
+      { retries: 2, base: 400 }
+    );
     if (!res.ok) throw new Error('geocode failed');
     return res.json();
   }
@@ -126,10 +149,8 @@ export function bindUI(mapCtrl, navCtrl) {
       const lat  = Number(it.lat);
       item.textContent = name;
       item.addEventListener('click', () => {
-        // set as goal
-        const gc = document.getElementById('goal-coord');
+        const gc = $('#goal-coord');
         if (gc) gc.value = `${lng},${lat}`;
-        // center map lightly
         try {
           if (mapCtrl?.map) {
             mapCtrl.map.easeTo({ center: [lng, lat], zoom: Math.max(mapCtrl.map.getZoom(), 14), duration: 400 });
@@ -155,12 +176,34 @@ export function bindUI(mapCtrl, navCtrl) {
     }
   }
 
-  if (searchBtn)  searchBtn.addEventListener('click', onSearch);
-  if (searchInput) searchInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') onSearch();
-  });
+  // click on button
+  if (searchBtn) {
+    searchBtn.addEventListener('click', (e) => { e.preventDefault(); onSearch(); });
+  }
+  // press Enter in input
+  if (searchInput) {
+    searchInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); onSearch(); } });
+  }
+  // submit on form (robust path when button type="submit")
+  if (searchForm) {
+    searchForm.addEventListener('submit', (e) => { e.preventDefault(); onSearch(); });
+  }
+
+  // ---- settings panel toggle (if present) ----
+  const settingsOpen =
+    $('#btn-settings') || $('[data-action="settings"]') || $('a[href="#settings"]');
+  const settingsPanel = $('#settings-panel');
+
+  if (settingsOpen && settingsPanel) {
+    settingsOpen.addEventListener('click', (e) => {
+      e.preventDefault();
+      const isOpen = settingsPanel.getAttribute('data-open') === '1';
+      settingsPanel.setAttribute('data-open', isOpen ? '0' : '1');
+      settingsPanel.style.display = isOpen ? 'none' : '';
+    });
+  }
 
   // ---- recenter FAB (optional) ----
-  const recenterBtn = document.getElementById('btn-recenter');
+  const recenterBtn = $('#btn-recenter');
   if (recenterBtn) recenterBtn.addEventListener('click', () => showToast('中心に戻しました'));
 }
