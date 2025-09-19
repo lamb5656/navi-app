@@ -1,29 +1,17 @@
 // /browser-navi/js/ui.js
 import { getSetting, setSetting } from './settings.js';
 import { withBackoff } from './libs/net.js';
+import { API_BASE } from '../config.js';
 
 /** toast */
-export function showToast(msg, ms = 2500) {
-  const t = document.createElement('div');
+function toast(msg, ms = 2500) {
+  const t = document.getElementById('toast') || document.createElement('div');
+  t.id = 'toast';
   t.className = 'toast';
   t.textContent = msg;
   document.body.appendChild(t);
-  setTimeout(() => t.remove(), ms);
-}
-
-/** safe query with fallbacks */
-function $(sel) {
-  return document.querySelector(sel);
-}
-function ensureResultsBox(anchorEl) {
-  let box = $('#search-results');
-  if (!box) {
-    box = document.createElement('div');
-    box.id = 'search-results';
-    box.className = 'search-results';
-    (anchorEl?.parentElement || document.body).appendChild(box);
-  }
-  return box;
+  t.style.opacity = '1';
+  setTimeout(() => (t.style.opacity = '0'), ms);
 }
 
 /**
@@ -32,178 +20,219 @@ function ensureResultsBox(anchorEl) {
  * @param {import('./nav.js').NavigationController} navCtrl
  */
 export function bindUI(mapCtrl, navCtrl) {
-  // ---- hide legacy follow toggle if any ----
-  const legacy = $('#follow-toggle, .follow-toggle, [data-follow-toggle]');
-  if (legacy) legacy.style.display = 'none';
+  // ---- elements (index.html準拠) ----
+  const $ = (id) => document.getElementById(id);
 
-  // ---- settings (avoid tolls / profile) ----
-  const avoidChk = $('#chk-avoid') || $('[name="avoid-tolls"]');
-  const profileSel = $('#sel-profile') || $('[name="profile"]');
+  const inputAddr        = $('addr');            // 目的地テキスト
+  const btnSearch        = $('btnSearch');       // 検索
+  const btnStart         = $('btnStart');        // ナビ開始
+  const btnStop          = $('btnStop');         // 停止
+  const btnFollowToggle  = $('btnFollowToggle'); // 追従トグル（開始前は隠す）
+  const btnRecenter      = $('btnRecenter');     // 再中心
 
-  if (avoidChk) {
-    avoidChk.checked = !!getSetting('avoidTolls');
-    avoidChk.addEventListener('change', () => setSetting('avoidTolls', !!avoidChk.checked));
+  const chkAvoidToolbar  = $('avoidTolls');      // ヘッダー側の有料回避
+
+  const cardSearch       = $('searchCard');      // 検索候補カード
+  const listSearch       = $('searchList');      // 候補リスト
+
+  const cardSettings     = $('settingsCard');    // 設定カード
+  const btnOpenSettings  = $('btnOpenSettings'); // 設定を開く
+  const btnSettingsClose = $('btnSettingsClose');// 設定を閉じる
+  const setAvoidTolls    = $('setAvoidTolls');
+  const setProfile       = $('setProfile');
+  const setTtsVolume     = $('setTtsVolume');
+  const setTtsRate       = $('setTtsRate');
+  const setTheme         = $('setTheme');
+
+  // ---- state ----
+  let goalLngLat = null; // [lng,lat]
+
+  // ---- initial UI ----
+  if (btnFollowToggle) {
+    btnFollowToggle.style.display = 'none'; // 開始前は非表示
   }
-  if (profileSel) {
-    profileSel.value = getSetting('profile') || 'driving-car';
-    profileSel.addEventListener('change', () => setSetting('profile', profileSel.value));
-  }
-
-  // ---- start/stop/follow ----
-  const startBtn = $('#btn-start') || $('[data-action="start"]');
-  const stopBtn  = $('#btn-stop')  || $('[data-action="stop"]');
-
-  // dynamic follow button placed left of Stop
-  let followBtn = $('#btn-follow');
-  if (!followBtn) {
-    followBtn = document.createElement('button');
-    followBtn.id = 'btn-follow';
-    followBtn.type = 'button';
-    followBtn.className = 'btn btn-outline';
-    followBtn.style.marginRight = '8px';
-    followBtn.style.display = 'none'; // hidden until start
-    followBtn.setAttribute('aria-pressed', 'true');
-    followBtn.textContent = '追従 ON';
-    if (stopBtn && stopBtn.parentNode) {
-      stopBtn.parentNode.insertBefore(followBtn, stopBtn);
-    }
+  if (btnStop) {
+    btnStop.disabled = true;
   }
 
-  const syncFollowLabel = () => {
-    const on = navCtrl.isFollowEnabled();
-    followBtn.textContent = on ? '追従 ON' : '追従 OFF';
-    followBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  // ツールバー側の有料回避 ⇄ 設定カード側と同期
+  const syncAvoidUIFromStore = () => {
+    const v = !!getSetting('avoidTolls');
+    if (chkAvoidToolbar) chkAvoidToolbar.checked = v;
+    if (setAvoidTolls) setAvoidTolls.checked = v;
+  };
+  syncAvoidUIFromStore();
+
+  // 設定カードに現在値を流し込む
+  const fillSettingsFromStore = () => {
+    if (setProfile)    setProfile.value    = getSetting('profile') || 'driving-car';
+    if (setTtsVolume)  setTtsVolume.value  = String(getSetting('ttsVolume') ?? 1);
+    if (setTtsRate)    setTtsRate.value    = String(getSetting('ttsSpeed')  ?? 1);
+    if (setTheme)      setTheme.value      = getSetting('theme') || 'auto';
+    syncAvoidUIFromStore();
   };
 
-  followBtn.addEventListener('click', () => {
-    const next = !navCtrl.isFollowEnabled();
-    navCtrl.setFollowEnabled(next);
-    syncFollowLabel();
-    showToast(next ? '追従を有効にしました' : '追従を停止しました');
-  });
-
-  if (startBtn) {
-    startBtn.addEventListener('click', async (e) => {
+  // ---- settings open/close ----
+  if (btnOpenSettings && cardSettings) {
+    btnOpenSettings.addEventListener('click', (e) => {
       e.preventDefault();
-      const s = ($('#start-coord')?.value || '').split(',').map(Number);
-      const g = ($('#goal-coord')?.value || '').split(',').map(Number);
-      if (s.length === 2 && g.length === 2 && s.every(n => !Number.isNaN(n)) && g.every(n => !Number.isNaN(n))) {
-        await navCtrl.start([s, g]);
-        followBtn.style.display = '';
-        navCtrl.setFollowEnabled(true);
-        syncFollowLabel();
-      } else {
-        showToast('座標は "lng,lat" で入れてください');
-      }
+      fillSettingsFromStore();
+      cardSettings.style.display = '';
+    });
+  }
+  if (btnSettingsClose && cardSettings) {
+    btnSettingsClose.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (setAvoidTolls) setSetting('avoidTolls', !!setAvoidTolls.checked);
+      if (setProfile)    setSetting('profile', setProfile.value);
+      if (setTtsVolume)  setSetting('ttsVolume', Number(setTtsVolume.value));
+      if (setTtsRate)    setSetting('ttsSpeed', Number(setTtsRate.value));
+      if (setTheme)      setSetting('theme', setTheme.value);
+      syncAvoidUIFromStore();
+      cardSettings.style.display = 'none';
+      toast('設定を保存しました');
     });
   }
 
-  if (stopBtn) {
-    stopBtn.addEventListener('click', (e) => {
-      e.preventDefault();
-      navCtrl.stop();
-      followBtn.style.display = 'none';
-      followBtn.setAttribute('aria-pressed', 'false');
+  // ツールバー側の有料回避クリックも保存
+  if (chkAvoidToolbar) {
+    chkAvoidToolbar.addEventListener('change', () => {
+      setSetting('avoidTolls', !!chkAvoidToolbar.checked);
+      if (setAvoidTolls) setAvoidTolls.checked = chkAvoidToolbar.checked;
     });
   }
 
-  // ---- search (robust binding: button click + form submit) ----
-  const searchInput =
-    $('#search-text') ||
-    $('[name="search"]') ||
-    $('input[type="search"]');
-
-  const searchBtn =
-    $('#btn-search') ||
-    $('[data-action="search"]') ||
-    (searchInput ? searchInput.closest('form')?.querySelector('button') : null);
-
-  const searchForm =
-    $('#search-form') ||
-    (searchInput ? searchInput.closest('form') : null);
-
-  const resultsBox = ensureResultsBox(searchBtn || searchInput);
-
+  // ---- search ----
   async function geocode(text) {
     const url = `${API_BASE}/geocode?text=${encodeURIComponent(text)}`;
-    const res = await withBackoff(
-      () => fetch(url, { headers: { Accept: 'application/json' } }),
-      { retries: 2, base: 400 }
-    );
+    const res = await withBackoff(() => fetch(url, { headers: { Accept: 'application/json' } }), { retries: 2, base: 400 });
     if (!res.ok) throw new Error('geocode failed');
     return res.json();
   }
 
-  function renderResults(list) {
-    resultsBox.innerHTML = '';
-    if (!Array.isArray(list) || !list.length) {
-      resultsBox.innerHTML = '<div class="sr-empty">候補がありません</div>';
+  function openSearchCard() {
+    if (cardSearch) cardSearch.style.display = '';
+  }
+  function closeSearchCard() {
+    if (cardSearch) cardSearch.style.display = 'none';
+  }
+
+  function renderSearchResults(items) {
+    if (!listSearch) return;
+    listSearch.innerHTML = '';
+    if (!Array.isArray(items) || !items.length) {
+      listSearch.innerHTML = '<div class="sr-empty">候補がありません</div>';
+      openSearchCard();
       return;
     }
-    for (const it of list) {
-      const item = document.createElement('button');
-      item.type = 'button';
-      item.className = 'sr-item';
-      const name = it.display_name || it.name || 'Unknown';
+    items.forEach(it => {
+      const name = it.display_name || it.name || '無名';
       const lng  = Number(it.lon ?? it.lng);
       const lat  = Number(it.lat);
-      item.textContent = name;
-      item.addEventListener('click', () => {
-        const gc = $('#goal-coord');
-        if (gc) gc.value = `${lng},${lat}`;
-        try {
-          if (mapCtrl?.map) {
-            mapCtrl.map.easeTo({ center: [lng, lat], zoom: Math.max(mapCtrl.map.getZoom(), 14), duration: 400 });
-          }
-        } catch {}
-        resultsBox.innerHTML = '';
-        showToast('目的地をセットしました');
+      const btn  = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'sr-item';
+      btn.textContent = name;
+      btn.addEventListener('click', () => {
+        goalLngLat = [lng, lat];
+        if (inputAddr) inputAddr.value = name;
+        // 地図を軽くセンター
+        try { if (mapCtrl?.map) mapCtrl.map.easeTo({ center: goalLngLat, zoom: Math.max(mapCtrl.map.getZoom(), 14), duration: 400 }); } catch {}
+        closeSearchCard();
+        toast('目的地をセットしました');
       });
-      resultsBox.appendChild(item);
-    }
+      listSearch.appendChild(btn);
+    });
+    openSearchCard();
   }
 
-  async function onSearch() {
-    const q = (searchInput?.value || '').trim();
-    if (!q) { showToast('検索キーワードを入れてください'); return; }
-    resultsBox.innerHTML = '<div class="sr-loading">検索中…</div>';
-    try {
-      const data = await geocode(q);
-      renderResults(data?.results || data || []);
-    } catch (e) {
-      console.error(e);
-      resultsBox.innerHTML = '<div class="sr-error">検索に失敗しました</div>';
-    }
-  }
-
-  // click on button
-  if (searchBtn) {
-    searchBtn.addEventListener('click', (e) => { e.preventDefault(); onSearch(); });
-  }
-  // press Enter in input
-  if (searchInput) {
-    searchInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); onSearch(); } });
-  }
-  // submit on form (robust path when button type="submit")
-  if (searchForm) {
-    searchForm.addEventListener('submit', (e) => { e.preventDefault(); onSearch(); });
-  }
-
-  // ---- settings panel toggle (if present) ----
-  const settingsOpen =
-    $('#btn-settings') || $('[data-action="settings"]') || $('a[href="#settings"]');
-  const settingsPanel = $('#settings-panel');
-
-  if (settingsOpen && settingsPanel) {
-    settingsOpen.addEventListener('click', (e) => {
+  if (btnSearch) {
+    btnSearch.addEventListener('click', async (e) => {
       e.preventDefault();
-      const isOpen = settingsPanel.getAttribute('data-open') === '1';
-      settingsPanel.setAttribute('data-open', isOpen ? '0' : '1');
-      settingsPanel.style.display = isOpen ? 'none' : '';
+      const q = (inputAddr?.value || '').trim();
+      if (!q) { toast('検索ワードを入れてください'); return; }
+      try {
+        if (listSearch) listSearch.innerHTML = '<div class="sr-loading">検索中…</div>';
+        const data = await geocode(q);
+        renderSearchResults(data?.results || data || []);
+      } catch (err) {
+        console.error(err);
+        if (listSearch) listSearch.innerHTML = '<div class="sr-error">検索に失敗しました</div>';
+        openSearchCard();
+      }
     });
   }
 
-  // ---- recenter FAB (optional) ----
-  const recenterBtn = $('#btn-recenter');
-  if (recenterBtn) recenterBtn.addEventListener('click', () => showToast('中心に戻しました'));
+  // ---- start / stop ----
+  async function resolveHere() {
+    // ナビ開始時の出発点：事前に setHereInitial 済みならそれ、無ければ一度だけ取得
+    if (navCtrl?.hereInitial && Array.isArray(navCtrl.hereInitial)) return navCtrl.hereInitial;
+    return new Promise((resolve) => {
+      if (!('geolocation' in navigator)) return resolve([139.767, 35.681]); // fallback: 東京駅
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve([pos.coords.longitude, pos.coords.latitude]),
+        ()   => resolve([139.767, 35.681]),
+        { enableHighAccuracy: true, timeout: 5000 }
+      );
+    });
+  }
+
+  if (btnStart) {
+    btnStart.addEventListener('click', async (e) => {
+      e.preventDefault();
+      try {
+        // ゴール未確定なら、その場で検索→先頭候補を採用
+        if (!goalLngLat) {
+          const q = (inputAddr?.value || '').trim();
+          if (q) {
+            const data = await geocode(q);
+            const item = (data?.results || data || [])[0];
+            if (item) goalLngLat = [Number(item.lon ?? item.lng), Number(item.lat)];
+          }
+        }
+        if (!goalLngLat) { toast('先に目的地を検索・選択してください'); return; }
+
+        const here = await resolveHere();
+        await navCtrl.start([here, goalLngLat]);
+
+        if (btnFollowToggle) {
+          // 停止ボタンの左側に表示
+          btnFollowToggle.style.display = '';
+          if (btnStop && btnStop.parentNode && btnFollowToggle !== btnStop.previousSibling) {
+            btnStop.parentNode.insertBefore(btnFollowToggle, btnStop);
+          }
+          navCtrl.setFollowEnabled(true);
+          btnFollowToggle.textContent = '進行方向';
+        }
+        if (btnStop) btnStop.disabled = false;
+        toast('ナビを開始しました');
+      } catch (err) {
+        console.error(err);
+        toast('ナビ開始に失敗しました');
+      }
+    });
+  }
+
+  if (btnStop) {
+    btnStop.addEventListener('click', (e) => {
+      e.preventDefault();
+      navCtrl.stop();
+      if (btnFollowToggle) btnFollowToggle.style.display = 'none';
+      btnStop.disabled = true;
+      toast('停止しました');
+    });
+  }
+
+  if (btnFollowToggle) {
+    btnFollowToggle.addEventListener('click', () => {
+      const next = !navCtrl.isFollowEnabled();
+      navCtrl.setFollowEnabled(next);
+      btnFollowToggle.textContent = next ? '進行方向' : '北固定';
+      toast(next ? '追従を有効にしました' : '追従を停止しました');
+    });
+  }
+
+  if (btnRecenter) {
+    btnRecenter.addEventListener('click', () => toast('中心に戻しました'));
+  }
 }

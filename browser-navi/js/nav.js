@@ -4,6 +4,7 @@
 import { withBackoff } from './libs/net.js';
 import { getSetting } from './settings.js';
 import { drawRoute, clearRoute, followUser } from './map.js';
+import { API_BASE } from '../config.js';
 
 function toast(msg, ms = 3000) {
   try {
@@ -53,21 +54,15 @@ export class NavigationController {
     this.watchId = null;
     this.lastStepIdx = -1;
     this.hereInitial = null;
-    this.followEnabled = false; // ← 追従フラグ
+    this.followEnabled = false;
   }
 
   setHereInitial(lnglat) {
     this.hereInitial = lnglat;
-    // まだ開始前は追従OFF想定なので centerしない
     followUser(lnglat, { center: false });
   }
-
-  setFollowEnabled(on) {
-    this.followEnabled = !!on;
-  }
-  isFollowEnabled() {
-    return !!this.followEnabled;
-  }
+  setFollowEnabled(on) { this.followEnabled = !!on; }
+  isFollowEnabled() { return !!this.followEnabled; }
 
   // ----- routing backends -----
   async _fetchRouteORS(payload) {
@@ -79,7 +74,6 @@ export class NavigationController {
     if (!res.ok) throw new Error('ORS route failed');
     return res.json();
   }
-
   async _fetchRouteOSRM(payload) {
     const coords = payload.coordinates || [];
     const start = coords[0];
@@ -88,7 +82,6 @@ export class NavigationController {
     if (!res.ok) throw new Error('OSRM route failed');
     return res.json();
   }
-
   async fetchRouteWithRetry(payload) {
     try {
       return await withBackoff(() => this._fetchRouteORS(payload), { retries: 2, base: 500 });
@@ -111,7 +104,6 @@ export class NavigationController {
       this.currentRoute = data;
       drawRoute(data);
 
-      // ← 開始時に追従ON
       this.setFollowEnabled(true);
 
       if (this.watchId) navigator.geolocation.clearWatch(this.watchId);
@@ -133,14 +125,13 @@ export class NavigationController {
     }
     this.currentRoute = null;
     this.lastStepIdx = -1;
-    this.setFollowEnabled(false); // ← 停止時は追従OFF
+    this.setFollowEnabled(false);
     clearRoute();
   }
 
   // ----- internals -----
   _onPosition(pos) {
     const { latitude, longitude } = pos.coords;
-    // 追従フラグに応じて center する/しない を切替
     followUser([longitude, latitude], { center: this.followEnabled });
     if (!this.currentRoute) return;
     this._updateInstructions([longitude, latitude]);
@@ -178,10 +169,7 @@ export class NavigationController {
       if (!wp) continue;
       const [slng, slat] = wp;
       const d = Math.hypot(lng - slng, lat - slat);
-      if (d < minDist) {
-        minDist = d;
-        minIdx = i;
-      }
+      if (d < minDist) { minDist = d; minIdx = i; }
     }
     return minIdx;
   }
@@ -196,6 +184,7 @@ export class NavigationController {
   }
 
   _renderProgress(step) {
+    // index.html は独自カード（#maneuver 等）なので、ここでは存在チェックのみ
     const el = document.getElementById('progress-card');
     if (!el) return;
     const iconKey = pickIcon(step);
