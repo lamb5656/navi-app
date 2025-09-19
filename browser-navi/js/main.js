@@ -19,16 +19,31 @@ if ('serviceWorker' in navigator) {
     }
 
     const navCtrl = new NavigationController(mapCtrl);
-    bindUI(mapCtrl, navCtrl);
 
-    // Acquire initial position once
-    if ('geolocation' in navigator) {
+    // ---- bind UI after DOM is ready (保険で二重に待つ) ----
+    const ready = (fn) => {
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', fn, { once: true });
+      } else {
+        fn();
+      }
+    };
+    ready(() => {
+      try {
+        bindUI(mapCtrl, navCtrl);
+        // デバッグ用ログ（必要ならコメントアウト可）
+        console.log('[SVN] UI bound');
+      } catch (e) {
+        console.error('[SVN] bindUI failed', e);
+      }
+    });
+
+    // 初期位置を一度取得（あれば追従はOFFのまま座標だけセット）
+    if ('geolocation' in navigator && typeof navCtrl.setHereInitial === 'function') {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
           const here = [pos.coords.longitude, pos.coords.latitude];
-          if (typeof navCtrl.setHereInitial === 'function') {
-            navCtrl.setHereInitial(here);
-          }
+          navCtrl.setHereInitial(here);
         },
         () => {},
         { enableHighAccuracy: true, timeout: 5000 }
@@ -36,13 +51,14 @@ if ('serviceWorker' in navigator) {
     }
   } catch (e) {
     console.error(e);
-    // Minimal user feedback without depending on UI modules
     try {
-      const t = document.createElement('div');
+      const t = document.getElementById('toast') || document.createElement('div');
+      t.id = 'toast';
       t.className = 'toast';
-      t.textContent = 'Init failed. Please reload.';
+      t.textContent = '初期化に失敗しました。再読み込みしてみてください';
       document.body.appendChild(t);
-      setTimeout(() => t.remove(), 4000);
+      t.style.opacity = '1';
+      setTimeout(() => (t.style.opacity = '0'), 3500);
     } catch {}
   }
 })();

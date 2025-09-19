@@ -78,3 +78,32 @@ body.follow-paused .fab{display:inline-block}
 .sr-item { display:block; width:100%; text-align:left; padding:10px 12px; border:0; border-bottom:1px solid #eee; background:transparent; cursor:pointer; }
 .sr-item:last-child { border-bottom:0; }
 .sr-empty,.sr-loading,.sr-error { padding:10px 12px; color:#666; }
+
+/* === click-through fix: keep header/toolbar/cards above the map === */
+.header,
+.toolbar,
+#searchCard,
+#settingsCard,
+#toast {
+  position: relative;
+  z-index: 1000;   /* map より前面に固定 */
+  pointer-events: auto;
+}
+
+/* map は最背面に固定（既存指定がある場合でも上書き） */
+#map {
+  position: relative;   /* 既に absolute の場合は absolute のままでOK */
+  z-index: 0 !important;
+}
+
+/* 万一、全画面オーバーレイが残っていてクリックを塞いでる場合は無効化 */
+.overlay-blocker,
+.fullscreen-overlay {
+  pointer-events: none !important;
+}
+
+/* 検索候補カード/設定カードはデフォルト非表示（表示時のみクリック有効） */
+#searchCard,
+#settingsCard {
+  display: none;
+}
