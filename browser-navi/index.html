@@ -6,62 +6,66 @@
   <title>SwitchVoiceNavi — ブラウザで動く音声ナビ</title>
   <meta name="description" content="MapLibre × OpenRouteService。二段階音声案内、リルート、HUD、料金回避に対応したブラウザナビ。">
   <meta name="theme-color" content="#0f172a">
-  <!-- MapLibre CSS (static) -->
-  <link href="https://cdn.jsdelivr.net/npm/maplibre-gl@3.7.0/dist/maplibre-gl.css" rel="stylesheet">
+
+  <!-- MapLibre CSS（ローカル優先。無ければ後でJS側でCDNロードしても見た目は動く） -->
+  <link href="./vendor/maplibre-gl.css" rel="stylesheet">
+
   <style>
-    :root{--container:1100px;--card:#fff;--ink:#0f172a;--muted:#64748b;--brand:#1b6ef3;}
+    :root{--container:1100px;--ink:#0f172a;--muted:#64748b;--brand:#1b6ef3;}
     *{box-sizing:border-box}
-    html,body{margin:0;padding:0;height:100%;}
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"Noto Sans JP",sans-serif;color:var(--ink);background:#f8fafc;}
-    a{color:var(--brand);text-decoration:none}
-    a:hover{text-decoration:underline}
+    html,body{margin:0;padding:0;height:100%}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"Noto Sans JP",sans-serif;color:var(--ink);background:#f8fafc}
+    a{color:var(--brand);text-decoration:none} a:hover{text-decoration:underline}
     .header{position:sticky;top:0;z-index:50;background:#fff;border-bottom:1px solid #e2e8f0}
     .header-inner{max-width:var(--container);margin:0 auto;height:56px;display:flex;align-items:center;justify-content:space-between;padding:0 16px}
-    .brand{font-weight:700;color:#0f172a}
+    .brand{font-weight:700}
     .nav a{margin-left:16px;color:#0f172a}
     .toolbar{max-width:var(--container);margin:0 auto;padding:10px 16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
     .toolbar input[type="text"]{flex:1;min-width:220px;padding:10px;border:1px solid #e2e8f0;border-radius:10px;background:#fff}
     .btn{display:inline-block;padding:10px 14px;border-radius:999px;border:1px solid #e2e8f0;background:#fff;color:#0f172a;font-weight:600}
-    .btn.primary{background:var(--brand);border-color:transparent;color:#fff}
+    .btn.primary{background:#1b6ef3;border-color:transparent;color:#fff}
     .btn:disabled{opacity:.5;pointer-events:none}
     #map{position:fixed;inset:140px 0 140px 0}
     .hud{position:fixed;left:0;right:0;bottom:0;background:rgba(255,255,255,.96);border-top:1px solid #e2e8f0}
     .hud-inner{max-width:var(--container);margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px}
-    .stat{display:flex;gap:6px;align-items:baseline}
-    .stat b{font-size:20px}
+    .stat{display:flex;gap:6px;align-items:baseline}.stat b{font-size:20px}
     .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:108px;background:#111827;color:#fff;padding:10px 14px;border-radius:10px;opacity:.96;display:none}
     .card{position:fixed;left:50%;transform:translateX(-50%);top:66px;background:#fff;border:1px solid #e2e8f0;border-radius:12px;box-shadow:0 10px 30px rgba(15,23,42,.08);display:none;min-width:280px;max-width:calc(100vw - 24px)}
     .card header{padding:10px 14px;border-bottom:1px solid #e2e8f0;font-weight:700}
     .card .body{padding:10px 14px}
     .card .item{padding:8px;border-radius:8px;cursor:pointer}
     .card .item:hover{background:#f1f5f9}
-    @media (max-width:680px){
-      #map{inset:166px 0 160px 0}
-      .hud-inner{flex-wrap:wrap}
-    }
+    @media (max-width:680px){#map{inset:166px 0 160px 0}.hud-inner{flex-wrap:wrap}}
   </style>
 
-  <!-- Robust loader with fallback (MapLibre/Turf) -->
+  <!-- MapLibre ローダ（ローカル → jsDelivr → unpkg の順）。読み込み後にアプリ起動。 -->
   <script>
-  (function(){
-    function loadScript(src, next){ var s=document.createElement('script'); s.src=src; s.async=false; s.onload=next; s.onerror=next; document.head.appendChild(s); }
-    function ensureMaplibre(next){
-      if (window.maplibregl) return next();
-      // try jsDelivr then unpkg
-      loadScript('https://cdn.jsdelivr.net/npm/maplibre-gl@3.7.0/dist/maplibre-gl.js', function(){
-        if (window.maplibregl) return next();
-        loadScript('https://unpkg.com/maplibre-gl@3.7.0/dist/maplibre-gl.js', function(){ next(); });
-      });
-    }
-    function ensureTurf(next){
-      if (window.turf) return next();
-      loadScript('https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js', function(){
-        if (window.turf) return next();
-        loadScript('https://unpkg.com/@turf/turf@6.5.0/turf.min.js', function(){ next(); });
-      });
-    }
-    window.__loadLibs = function(cb){ ensureMaplibre(function(){ ensureTurf(cb); }); };
-  })();
+    (function(){
+      function loadScript(src, next){var s=document.createElement('script');s.src=src;s.async=false;s.onload=next;s.onerror=next;document.head.appendChild(s);}
+      function loadCSS(href){var l=document.createElement('link');l.rel='stylesheet';l.href=href;document.head.appendChild(l);}
+      function ensureMaplibre(cb){
+        if (window.maplibregl) return cb();
+        // 1) local
+        loadScript('./vendor/maplibre-gl.js', function(){
+          if (window.maplibregl) return cb();
+          // 2) jsDelivr
+          loadScript('https://cdn.jsdelivr.net/npm/maplibre-gl@3.7.0/dist/maplibre-gl.js', function(){
+            if (!document.querySelector('link[href*="maplibre-gl.css"]')){
+              loadCSS('https://cdn.jsdelivr.net/npm/maplibre-gl@3.7.0/dist/maplibre-gl.css');
+            }
+            if (window.maplibregl) return cb();
+            // 3) unpkg
+            loadScript('https://unpkg.com/maplibre-gl@3.7.0/dist/maplibre-gl.js', function(){
+              if (!document.querySelector('link[href*="maplibre-gl.css"]')){
+                loadCSS('https://unpkg.com/maplibre-gl@3.7.0/dist/maplibre-gl.css');
+              }
+              cb();
+            });
+          });
+        });
+      }
+      window.__boot = function(start){ ensureMaplibre(start); };
+    })();
   </script>
 </head>
 <body>
@@ -106,9 +110,8 @@ const TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 /* ==== Map / markers ==== */
 let map, routeLayerId = "route-line";
 let posMarker, goalMarker;
-// queue initial operations until maplibre + map are ready
 let mapReady = false;
-const markerQueue = []; // [[lng,lat], type] type: 'pos' | 'goal'
+const markerQueue = []; // [[lng,lat], 'pos'|'goal']
 
 const mapStyle = {
   "version": 8,
@@ -120,15 +123,14 @@ const mapStyle = {
 };
 
 function initMap() {
-  if (!window.maplibregl) { alert("Map library failed to load. Please reload."); return; }
-  map = new maplibregl.Map({ container: "map", style: mapStyle, center: [139.767, 35.681], zoom: 12, attributionControl: true });
+  if (!window.maplibregl){ alert("Map library failed to load. Please reload."); return; }
+  map = new maplibregl.Map({ container:"map", style:mapStyle, center:[139.767,35.681], zoom:12, attributionControl:true });
   map.addControl(new maplibregl.NavigationControl(), "top-left");
   map.on('load', () => {
     mapReady = true;
-    // flush queued markers
     while (markerQueue.length){
       const [lngLat, kind] = markerQueue.shift();
-      if (kind === 'pos') _setMarkerImmediate(lngLat);
+      if (kind==='pos') _setMarkerImmediate(lngLat);
       else _setGoalImmediate(lngLat);
     }
   });
@@ -153,233 +155,176 @@ function setGoal(lngLat){
 }
 
 /* ==== Helpers ==== */
-function toast(msg, ms=1800){ const el = document.getElementById("toast"); el.textContent = msg; el.style.display="block"; clearTimeout(el._t); el._t=setTimeout(()=>el.style.display="none", ms); }
-function hav(a,b){ const R=6371000; const toRad=x=>x*Math.PI/180; const dLat=toRad(b[1]-a[1]); const dLng=toRad(b[0]-a[0]); const la1=toRad(a[1]); const la2=toRad(b[1]); const A=Math.sin(dLat/2)**2+Math.cos(la1)*Math.cos(la2)*Math.sin(dLng/2)**2; return 2*R*Math.asin(Math.sqrt(A)); }
-function nearestIndex(point, line){ let mi=0, md=Infinity; for(let i=0;i<line.length;i++){ const d=hav(point,line[i]); if(d<md){md=d;mi=i;} } return mi; }
+function toast(msg, ms=1800){ const el=document.getElementById("toast"); el.textContent=msg; el.style.display="block"; clearTimeout(el._t); el._t=setTimeout(()=>el.style.display="none", ms); }
+function hav(a,b){ const R=6371000, toRad=x=>x*Math.PI/180; const dLat=toRad(b[1]-a[1]), dLng=toRad(b[0]-a[0]), la1=toRad(a[1]), la2=toRad(b[1]); const A=Math.sin(dLat/2)**2+Math.cos(la1)*Math.cos(la2)*Math.sin(dLng/2)**2; return 2*R*Math.asin(Math.sqrt(A)); }
+function nearestIndex(p, line){ let mi=0, md=Infinity; for(let i=0;i<line.length;i++){ const d=hav(p,line[i]); if(d<md){md=d;mi=i;} } return mi; }
 function pointToSegmentDistance(p,a,b){
-  const toXY = (lnglat)=>{ const x = lnglat[0]*111320*Math.cos(lnglat[1]*Math.PI/180); const y = lnglat[1]*110540; return [x,y]; };
-  const P = toXY(p), A = toXY(a), B = toXY(b);
-  const AB = [B[0]-A[0], B[1]-A[1]], AP = [P[0]-A[0], P[1]-A[1]];
+  const toXY=(ll)=>[ll[0]*111320*Math.cos(ll[1]*Math.PI/180), ll[1]*110540];
+  const P=toXY(p), A=toXY(a), B=toXY(b), AB=[B[0]-A[0],B[1]-A[1]], AP=[P[0]-A[0],P[1]-A[1]];
   const ab2 = AB[0]*AB[0]+AB[1]*AB[1] || 1;
-  let t = (AP[0]*AB[0]+AP[1]*AB[1]) / ab2; t = Math.max(0, Math.min(1, t));
-  const X = [A[0]+AB[0]*t, A[1]+AB[1]*t];
-  const dx = P[0]-X[0], dy = P[1]-X[1];
-  return Math.hypot(dx, dy);
+  let t=(AP[0]*AB[0]+AP[1]*AB[1])/ab2; t=Math.max(0,Math.min(1,t));
+  const X=[A[0]+AB[0]*t,A[1]+AB[1]*t]; return Math.hypot(P[0]-X[0], P[1]-X[1]);
 }
-function minDistanceToPolyline(point, line){
-  let md=Infinity;
-  for(let i=1;i<line.length;i++){
-    const d = pointToSegmentDistance(point, line[i-1], line[i]);
-    if (d<md) md=d;
-  }
-  return md;
+function minDistanceToPolyline(point, line){ let md=Infinity; for(let i=1;i<line.length;i++){ const d=pointToSegmentDistance(point,line[i-1],line[i]); if(d<md) md=d; } return md; }
+function bboxOfCoords(coords){
+  let minLng=Infinity,minLat=Infinity,maxLng=-Infinity,maxLat=-Infinity;
+  for(const [lng,lat] of coords){ if(lng<minLng)minLng=lng; if(lat<minLat)minLat=lat; if(lng>maxLng)maxLng=lng; if(lat>maxLat)maxLat=lat; }
+  return [[minLng,minLat],[maxLng,maxLat]];
 }
 
 /* ==== Geocoding UI ==== */
-const addr = document.getElementById("addr");
-const card = document.getElementById("searchCard");
-const list = document.getElementById("searchList");
+const addr=document.getElementById("addr");
+const card=document.getElementById("searchCard");
+const list=document.getElementById("searchList");
 
 async function onSearch(){
-  const q = addr.value.trim();
-  if (!q) return;
+  const q=addr.value.trim(); if(!q) return;
   try{
-    const res = await fetch(`${API_BASE}/geocode?text=${encodeURIComponent(q)}`, { credentials:"omit" });
-    const data = await res.json();
-    list.innerHTML = "";
+    const res=await fetch(`${API_BASE}/geocode?text=${encodeURIComponent(q)}`,{credentials:"omit"});
+    const data=await res.json();
+    list.innerHTML="";
     (data?.features||[]).slice(0,8).forEach(f=>{
-      const c = f.geometry.coordinates;
-      const name = f.properties?.label || f.properties?.name || `${c[1]},${c[0]}`;
-      const div = document.createElement("div");
-      div.className = "item";
-      div.textContent = name;
-      div.addEventListener("click", ()=>{
-        setGoal(c);
-        goal = c;
-        if (mapReady) map.easeTo({center: c, zoom: 16});
-        card.style.display="none";
-      });
+      const c=f.geometry.coordinates;
+      const name=f.properties?.label||f.properties?.name||`${c[1]},${c[0]}`;
+      const div=document.createElement("div");
+      div.className="item"; div.textContent=name;
+      div.addEventListener("click", ()=>{ setGoal(c); goal=c; if(mapReady) map.easeTo({center:c,zoom:16}); card.style.display="none"; });
       list.appendChild(div);
     });
-    card.style.display = "block";
-  }catch(e){
-    console.error(e);
-    toast("検索に失敗しました");
-  }
+    card.style.display="block";
+  }catch(e){ console.error(e); toast("検索に失敗しました"); }
 }
 
 /* ==== Routing & Guidance ==== */
-let here = null, goal = null, routeCoords = [], steps = [];
-let watchId = null, wakeLock = null;
-let stepPreviewed = new Set();
+let here=null, goal=null, routeCoords=[], steps=[];
+let watchId=null, wakeLock=null;
+let stepPreviewed=new Set();
 
 // Debounced TTS
-let __lastSpeechAt = 0;
-const MIN_SPEECH_INTERVAL_MS = 3500;
+let __lastSpeechAt=0;
+const MIN_SPEECH_INTERVAL_MS=3500;
 function speakLine(text){
-  const now = Date.now();
-  if (now - __lastSpeechAt < MIN_SPEECH_INTERVAL_MS) return;
-  __lastSpeechAt = now;
-  try{
-    const u = new SpeechSynthesisUtterance(text);
-    u.rate = 1.0; u.pitch = 1.0;
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(u);
-  }catch(e){ console.warn("TTS failed", e); }
+  const now=Date.now();
+  if(now-__lastSpeechAt<MIN_SPEECH_INTERVAL_MS) return;
+  __lastSpeechAt=now;
+  try{ const u=new SpeechSynthesisUtterance(text); u.rate=1.0; u.pitch=1.0; window.speechSynthesis.cancel(); window.speechSynthesis.speak(u); }catch(e){ console.warn("TTS failed",e); }
 }
 
 // Preview dedupe across re-routes
-const PREVIEW_M = 300;
-const EXECUTE_M = 40;
-const PREVIEW_COOLDOWN_MS = 45000;
-const previewHistory = new Map();
-function stepPreviewKey(step){
-  const wp = step?.way_points?.[1] ?? -1;
-  const instr = (step?.instruction || "").trim();
-  return `${wp}:${instr}`;
-}
+const PREVIEW_M=300, EXECUTE_M=40, PREVIEW_COOLDOWN_MS=45000;
+const previewHistory=new Map();
+function stepPreviewKey(step){ const wp=step?.way_points?.[1]??-1; const ins=(step?.instruction||"").trim(); return `${wp}:${ins}`; }
 
 // Re-route hysteresis
-let offRouteCount = 0;
-let lastRerouteAt = 0;
-const OFF_ROUTE_METERS = 90;
-const OFF_ROUTE_HYST_COUNT = 3;
-const REROUTE_COOLDOWN_MS = 15000;
+let offRouteCount=0, lastRerouteAt=0;
+const OFF_ROUTE_METERS=90, OFF_ROUTE_HYST_COUNT=3, REROUTE_COOLDOWN_MS=15000;
 
-function setStatus(t){ document.getElementById("status").textContent = t; }
+function setStatus(t){ document.getElementById("status").textContent=t; }
 
 async function fetchRoute(startLngLat, goalLngLat, opt={}){
-  const body = JSON.stringify({ coordinates: [startLngLat, goalLngLat], avoidTolls: !!opt.avoidTolls });
-  const res = await fetch(`${API_BASE}/route`, { method:"POST", headers:{ "Content-Type":"application/json" }, body });
-  if (!res.ok) throw new Error("route error");
+  const body=JSON.stringify({coordinates:[startLngLat,goalLngLat], avoidTolls:!!opt.avoidTolls});
+  const res=await fetch(`${API_BASE}/route`,{method:"POST",headers:{"Content-Type":"application/json"},body});
+  if(!res.ok) throw new Error("route error");
   return res.json();
 }
 
 function drawRouteFeature(feature){
-  if (!window.turf || !mapReady) return;
-  const geo = { "type":"FeatureCollection", "features":[feature] };
-  if (map.getSource("route")) {
-    map.getSource("route").setData(geo);
-  } else {
-    map.addSource("route", { "type":"geojson", "data": geo });
-    map.addLayer({ "id": routeLayerId, "type": "line", "source": "route", "paint": {"line-color":"#2563eb","line-width":5,"line-opacity":0.9} });
+  if(!mapReady) return;
+  const geo={type:"FeatureCollection",features:[feature]};
+  if(map.getSource("route")){ map.getSource("route").setData(geo); }
+  else{
+    map.addSource("route",{type:"geojson",data:geo});
+    map.addLayer({id:routeLayerId,type:"line",source:"route",paint:{"line-color":"#2563eb","line-width":5,"line-opacity":0.9}});
   }
-  const bbox = turf.bbox(geo);
-  map.fitBounds(bbox, { padding: 50, maxZoom: 16, duration: 600 });
+  const coords=feature.geometry.coordinates;
+  const bbox=bboxOfCoords(coords);
+  map.fitBounds(bbox,{padding:50,maxZoom:16,duration:600});
 }
 
 function setupGuidance(feature){
-  routeCoords = feature.geometry.coordinates;
-  const seg = feature.properties?.segments?.[0] || {};
-  steps = seg.steps || [];
-  stepPreviewed = new Set();
+  routeCoords=feature.geometry.coordinates;
+  const seg=feature.properties?.segments?.[0]||{};
+  steps=seg.steps||[];
+  stepPreviewed=new Set();
   drawRouteFeature(feature);
-  if (here && mapReady) map.easeTo({center: here, zoom: 15, duration: 400});
+  if(here&&mapReady) map.easeTo({center:here,zoom:15,duration:400});
 }
 
 async function startNav(){
-  if (!goal){ toast("まず目的地を検索・選択してください"); return; }
+  if(!goal){ toast("まず目的地を検索・選択してください"); return; }
   try{
-    if (!here){ toast("現在地の取得を待っています…"); }
-    const avoidTolls = document.getElementById("avoidTolls").checked;
-    const data = await fetchRoute(here || goal, goal, { avoidTolls });
-    const feat = data.features[0];
+    if(!here){ toast("現在地の取得を待っています…"); }
+    const avoidTolls=document.getElementById("avoidTolls").checked;
+    const data=await fetchRoute(here||goal, goal, {avoidTolls});
+    const feat=data.features[0];
     setupGuidance(feat);
     setStatus("案内中");
-    document.getElementById("btnStart").disabled = true;
-    document.getElementById("btnStop").disabled = false;
-    if ("wakeLock" in navigator && navigator.wakeLock?.request){ try{ wakeLock = await navigator.wakeLock.request("screen"); }catch{} }
+    document.getElementById("btnStart").disabled=true;
+    document.getElementById("btnStop").disabled=false;
+    if("wakeLock" in navigator && navigator.wakeLock?.request){ try{ wakeLock=await navigator.wakeLock.request("screen"); }catch{} }
     beginWatch();
     speakLine("案内を開始します");
-  }catch(e){
-    console.error(e);
-    toast("ルート取得に失敗しました");
-  }
+  }catch(e){ console.error(e); toast("ルート取得に失敗しました"); }
 }
 
 function stopNav(){
-  if (watchId){ navigator.geolocation.clearWatch(watchId); watchId = null; }
-  if (wakeLock){ try{ wakeLock.release(); }catch{} wakeLock = null; }
+  if(watchId){ navigator.geolocation.clearWatch(watchId); watchId=null; }
+  if(wakeLock){ try{ wakeLock.release(); }catch{} wakeLock=null; }
   setStatus("停止中");
-  document.getElementById("btnStart").disabled = false;
-  document.getElementById("btnStop").disabled = true;
+  document.getElementById("btnStart").disabled=false;
+  document.getElementById("btnStop").disabled=true;
   speakLine("案内を停止しました");
 }
 
 function updateHUD(remainMeters, etaSec){
   document.getElementById("remainKm").textContent = isFinite(remainMeters) ? (remainMeters/1000).toFixed(1) : "–";
-  if (isFinite(etaSec)){
-    const d = new Date(Date.now() + etaSec*1000);
-    const hh = String(d.getHours()).padStart(2,"0");
-    const mm = String(d.getMinutes()).padStart(2,"0");
-    document.getElementById("eta").textContent = `${hh}:${mm}`;
-  } else {
-    document.getElementById("eta").textContent = "–:–";
-  }
+  if(isFinite(etaSec)){ const d=new Date(Date.now()+etaSec*1000); const hh=String(d.getHours()).padStart(2,"0"); const mm=String(d.getMinutes()).padStart(2,"0"); document.getElementById("eta").textContent=`${hh}:${mm}`; }
+  else { document.getElementById("eta").textContent="–:–"; }
 }
 
 function estimateRemainMetersAndETA(point){
-  if (!routeCoords.length) return { meters: NaN, eta: NaN };
-  const idx = nearestIndex(point, routeCoords);
-  let meters = hav(point, routeCoords[idx]);
-  for (let i=idx;i<routeCoords.length-1;i++) meters += hav(routeCoords[i], routeCoords[i+1]);
-  const speed = 11.1; // m/s ~ 40km/h avg
-  return { meters, eta: meters / speed };
+  if(!routeCoords.length) return {meters:NaN, eta:NaN};
+  const idx=nearestIndex(point, routeCoords);
+  let meters=hav(point, routeCoords[idx]);
+  for(let i=idx;i<routeCoords.length-1;i++) meters+=hav(routeCoords[i], routeCoords[i+1]);
+  const speed=11.1; return {meters, eta:meters/speed};
 }
 
 async function beginWatch(){
-  if (watchId) navigator.geolocation.clearWatch(watchId);
+  if(watchId) navigator.geolocation.clearWatch(watchId);
   watchId = navigator.geolocation.watchPosition(async (pos)=>{
-    here = [pos.coords.longitude, pos.coords.latitude];
+    here=[pos.coords.longitude,pos.coords.latitude];
     setMarker(here);
 
-    if (!routeCoords.length){ if (mapReady) map.easeTo({center: here, zoom: 15}); return; }
+    if(!routeCoords.length){ if(mapReady) map.easeTo({center:here,zoom:15}); return; }
 
-    const est = estimateRemainMetersAndETA(here);
+    const est=estimateRemainMetersAndETA(here);
     updateHUD(est.meters, est.eta);
 
-    if (est.meters < 30){
-      speakLine("目的地に到着しました"); stopNav(); return;
-    }
+    if(est.meters < 30){ speakLine("目的地に到着しました"); stopNav(); return; }
 
-    const idx = nearestIndex(here, routeCoords);
-    let nextStepIndex = -1;
-    for (let i=0;i<steps.length;i++){
-      const wp = steps[i]?.way_points?.[1];
-      if (typeof wp === "number" && wp > idx){ nextStepIndex = i; break; }
-    }
-    if (nextStepIndex >= 0){
-      const step = steps[nextStepIndex];
-      const wp = step.way_points[1];
-      const remainToNext = hav(here, routeCoords[wp]);
-
-      if (!stepPreviewed.has(nextStepIndex) && remainToNext <= PREVIEW_M){
-        const key = stepPreviewKey(step);
-        const now = Date.now();
-        const last = previewHistory.get(key) || 0;
-        if (now - last >= PREVIEW_COOLDOWN_MS){
-          stepPreviewed.add(nextStepIndex);
-          previewHistory.set(key, now);
-          speakLine(`300メートル先、${step.instruction || "進行方向です"}`);
-        }
+    const idx=nearestIndex(here, routeCoords);
+    let nextStepIndex=-1;
+    for(let i=0;i<steps.length;i++){ const wp=steps[i]?.way_points?.[1]; if(typeof wp==="number" && wp>idx){ nextStepIndex=i; break; } }
+    if(nextStepIndex>=0){
+      const step=steps[nextStepIndex], wp=step.way_points[1];
+      const remainToNext=hav(here, routeCoords[wp]);
+      if(!stepPreviewed.has(nextStepIndex) && remainToNext<=PREVIEW_M){
+        const key=stepPreviewKey(step); const now=Date.now(); const last=previewHistory.get(key)||0;
+        if(now-last>=PREVIEW_COOLDOWN_MS){ stepPreviewed.add(nextStepIndex); previewHistory.set(key, now); speakLine(`300メートル先、${step.instruction||"進行方向です"}`); }
       }
-      if (remainToNext <= EXECUTE_M){
-        speakLine(step.instruction || "その先です");
-      }
+      if(remainToNext<=EXECUTE_M){ speakLine(step.instruction||"その先です"); }
     }
 
-    const off = minDistanceToPolyline(here, routeCoords);
-    if (off > OFF_ROUTE_METERS){ offRouteCount++; } else { offRouteCount = 0; }
-    const now = Date.now();
-    if (offRouteCount >= OFF_ROUTE_HYST_COUNT && (now - lastRerouteAt) >= REROUTE_COOLDOWN_MS){
-      lastRerouteAt = now;
-      setStatus(`コース外 ${off|0}m → リルート中…`);
+    const off=minDistanceToPolyline(here, routeCoords);
+    if(off>OFF_ROUTE_METERS){ offRouteCount++; } else { offRouteCount=0; }
+    const now=Date.now();
+    if(offRouteCount>=OFF_ROUTE_HYST_COUNT && (now-lastRerouteAt)>=REROUTE_COOLDOWN_MS){
+      lastRerouteAt=now; setStatus(`コース外 ${off|0}m → リルート中…`);
       try{
-        const avoidTolls = document.getElementById("avoidTolls").checked;
-        const data = await fetchRoute(here, goal, { avoidTolls });
-        const feat = data.features[0];
-        setupGuidance(feat);
-        speakLine("ルートを再検索しました");
+        const avoidTolls=document.getElementById("avoidTolls").checked;
+        const data=await fetchRoute(here, goal, {avoidTolls});
+        const feat=data.features[0]; setupGuidance(feat); speakLine("ルートを再検索しました");
       }catch(e){ console.error(e); }
       return;
     }
@@ -391,13 +336,13 @@ document.getElementById("btnSearch").addEventListener("click", onSearch);
 document.getElementById("btnStart").addEventListener("click", startNav);
 document.getElementById("btnStop").addEventListener("click", stopNav);
 
-/* ==== Bootstrap after libs loaded ==== */
-window.__loadLibs(function(){
+/* ==== Boot ==== */
+window.__boot(function(){
   initMap();
   navigator.geolocation.getCurrentPosition((pos)=>{
-    here = [pos.coords.longitude, pos.coords.latitude];
+    here=[pos.coords.longitude,pos.coords.latitude];
     setMarker(here);
-    if (mapReady) map.easeTo({center: here, zoom: 15});
+    if(mapReady) map.easeTo({center:here,zoom:15});
   }, ()=>{}, {enableHighAccuracy:true, timeout:5000});
 });
 </script>
