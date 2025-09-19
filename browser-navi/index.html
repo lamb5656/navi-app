@@ -12,7 +12,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 
-  <!-- MapLibre CSS（ローカル優先） -->
+  <!-- MapLibre CSS（ローカル優先。vendor/maplibre-gl.css を同梱） -->
   <link href="./vendor/maplibre-gl.css" rel="stylesheet">
 
   <style>
@@ -25,7 +25,7 @@
     *{box-sizing:border-box}
     html,body{margin:0;padding:0;height:100%}
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"Noto Sans JP",sans-serif;color:var(--ink);background:#f8fafc}
-    a{color:var(--brand);text-decoration:none} a:hover{text-decoration:underline}
+    a{color:#1b6ef3;text-decoration:none} a:hover{text-decoration:underline}
 
     .header{position:sticky;top:0;z-index:50;background:#fff;border-bottom:1px solid #e2e8f0}
     .header-inner{max-width:var(--container);margin:0 auto;height:56px;display:flex;align-items:center;justify-content:space-between;padding:0 16px}
@@ -37,8 +37,8 @@
     .btn{display:inline-block;padding:10px 14px;border-radius:999px;border:1px solid #e2e8f0;background:#fff;color:#0f172a;font-weight:600}
     .btn.primary{background:#1b6ef3;border-color:transparent;color:#fff}
     .btn:disabled{opacity:.5;pointer-events:none}
-    select{padding:8px 10px;border:1px solid #e2e8f0;border-radius:10px;background:#fff}
 
+    /* map viewport uses CSS vars for dynamic top/bottom gaps */
     #map{position:fixed;inset:var(--map-top) 0 var(--map-bottom) 0}
 
     .hud{position:fixed;left:0;right:0;bottom:0;background:rgba(255,255,255,.96);border-top:1px solid #e2e8f0}
@@ -52,10 +52,12 @@
     .card .item{padding:8px;border-radius:8px;cursor:pointer}
     .card .item:hover{background:#f1f5f9}
 
-    /* ナビ中のコンパクト表示 */
-    body.navigating { --map-top:66px; }
+    /* ======= ナビ中のコンパクト表示 ======= */
+    body.navigating { --map-top:66px; }                /* toolbarを畳むので map top を縮める */
     body.navigating .toolbar { height:0; padding:0; overflow:hidden; border:0; }
-    body.navigating .nav { display:none; }
+    body.navigating .nav { display:none; }             /* 右上リンクも隠す */
+
+    /* 右上：停止ボタン（ナビ中のみ固定表示・赤） */
     #btnStop{
       position:fixed; top:10px; right:12px; z-index:60; display:none;
       background:#ef4444; color:#fff; border-color:transparent;
@@ -63,10 +65,19 @@
     body.navigating #btnStop{ display:inline-block; }
     body:not(.navigating) #btnStop{ position:static; display:inline-block; background:#fff; color:#0f172a; border:1px solid #e2e8f0; }
 
+    /* 右上：追従トグル（停止の左。ナビ中のみ表示） */
+    #btnFollowToggle{
+      position:fixed; top:10px; right:112px; z-index:60; display:none;
+      background:#fff; color:#0f172a; border:1px solid #e2e8f0;
+    }
+    body.navigating #btnFollowToggle{ display:inline-block; }
+    body:not(.navigating) #btnFollowToggle{ display:none; }
+
     @media (max-width:680px){
       :root{ --map-top:206px; --map-bottom:160px; }
       body.navigating{ --map-top:66px; }
       .hud-inner{flex-wrap:wrap}
+      #btnFollowToggle{ right:108px; }
     }
   </style>
 
@@ -111,13 +122,10 @@
     <input id="addr" type="text" placeholder="目的地を検索（例：名古屋駅）">
     <button id="btnSearch" class="btn">検索</button>
     <label><input id="avoidTolls" type="checkbox" checked> 有料道路回避</label>
-    <label>追従
-      <select id="followSelect">
-        <option value="north">北固定</option>
-        <option value="course">進行方向</option>
-      </select>
-    </label>
     <button id="btnStart" class="btn primary">ナビ開始</button>
+
+    <!-- 停止＆追従トグル：通常はツールバー内（見えない）。ナビ中は右上固定へ -->
+    <button id="btnFollowToggle" class="btn" type="button">進行方向</button>
     <button id="btnStop" class="btn" disabled>停止</button>
   </div>
 
@@ -128,12 +136,7 @@
       <div class="stat">残距離 <b id="remainKm">–</b> km</div>
       <div class="stat">到着予想 <b id="eta">–:–</b></div>
       <div class="stat">状態 <span id="status">待機中</span></div>
-      <div class="stat">追従
-        <select id="followSelectHud">
-          <option value="north">北固定</option>
-          <option value="course">進行方向</option>
-        </select>
-      </div>
+      <!-- ※ 要望により、未開始時は追従UIは出さないためHUDからも削除 -->
     </div>
   </div>
 
@@ -160,11 +163,11 @@ let mapReady = false;
 const markerQueue = []; // [[lng,lat], 'pos'|'goal']
 
 // follow & bearing control
-let followMode = localStorage.getItem('followMode') || 'north'; // 'north' | 'course'
+let followMode = 'course';    // 'course' | 'north' （デフォルト：進行方向）
 let autoFollow = true;
 let restoreTimer = null;
 let lastHeading = 0;          // deg
-let lastPosForCourse = null;  // to compute course if heading is null
+let lastPosForCourse = null;  // 案内中の移動ベクトル用
 
 const mapStyle = {
   "version": 8,
@@ -188,14 +191,15 @@ function initMap() {
     }
   });
 
-  // detect user interaction → stop follow, then resume in 5s after dragend
+  // ユーザー操作 → 追従一時停止 → 5秒後に自動復帰
   function pauseFollow(){ autoFollow = false; if (restoreTimer) clearTimeout(restoreTimer); }
   map.on('dragstart', pauseFollow);
   map.on('rotatestart', pauseFollow);
   map.on('pitchstart', pauseFollow);
-  map.on('dragend', ()=>{ if (restoreTimer) clearTimeout(restoreTimer); restoreTimer = setTimeout(()=>{ autoFollow = true; }, 5000); });
-  map.on('rotateend', ()=>{ if (restoreTimer) clearTimeout(restoreTimer); restoreTimer = setTimeout(()=>{ autoFollow = true; }, 5000); });
-  map.on('pitchend', ()=>{ if (restoreTimer) clearTimeout(restoreTimer); restoreTimer = setTimeout(()=>{ autoFollow = true; }, 5000); });
+  function scheduleRestore(){ if (restoreTimer) clearTimeout(restoreTimer); restoreTimer = setTimeout(()=>{ autoFollow = true; }, 5000); }
+  map.on('dragend', scheduleRestore);
+  map.on('rotateend', scheduleRestore);
+  map.on('pitchend', scheduleRestore);
 }
 
 function _setMarkerImmediate(lngLat){
@@ -218,13 +222,8 @@ function setGoal(lngLat){
 
 function updateMapView(){
   if (!mapReady || !here) return;
-  // compute target bearing
-  let bearing = 0;
-  if (followMode === 'course'){
-    bearing = lastHeading || 0;
-  } else {
-    bearing = 0; // north-up
-  }
+  // bearing（進行方向 or 北固定）
+  let bearing = (followMode === 'course') ? (lastHeading || 0) : 0;
   if (autoFollow){
     map.easeTo({ center: here, bearing, duration: 300 });
   }
@@ -343,6 +342,10 @@ async function startNav(){
     document.getElementById("btnStart").disabled=true;
     document.getElementById("btnStop").disabled=false;
 
+    // 追従トグル：開始時はデフォルト「進行方向」
+    followMode = 'course';
+    updateFollowToggleLabel();
+
     // ナビ中モード
     document.body.classList.add('navigating');
     card.style.display = "none";
@@ -360,7 +363,10 @@ function stopNav(){
   setStatus("停止中");
   document.getElementById("btnStart").disabled=false;
   document.getElementById("btnStop").disabled=true;
+
+  // 復元
   document.body.classList.remove('navigating');
+
   speakLine("案内を停止しました");
 }
 
@@ -398,7 +404,7 @@ async function beginWatch(){
 
     // heading 取得（GPS優先→移動ベクトル）
     if (typeof pos.coords.heading === 'number' && !Number.isNaN(pos.coords.heading)) {
-      lastHeading = pos.coords.heading; // 0..360 (deg, 0=north, clockwise)
+      lastHeading = pos.coords.heading; // 0..360 (deg, 0=north)
     } else {
       const c = computeCourseFromPositions(lastPosForCourse || prev, here);
       if (c != null) lastHeading = c;
@@ -411,14 +417,14 @@ async function beginWatch(){
     const est=estimateRemainMetersAndETA(here);
     updateHUD(est.meters, est.eta);
 
-    // 到着処理の磨き：50m 予告 → 0–20m 到着
+    // 到着処理：50m 予告 → 0–20m 到着
     if (!arrivalPreviewed && est.meters <= 50){
       arrivalPreviewed = true;
       speakLine("まもなく目的地に到着します");
     }
     if (est.meters <= 20){
       speakLine("目的地に到着しました");
-      toast("到着しました。おつかれさまにゃ");
+      toast("到着しました。おつかれさまでした");
       stopNav();
       return;
     }
@@ -433,18 +439,19 @@ async function beginWatch(){
     if (nextStepIndex>=0){
       const step=steps[nextStepIndex], wp=step.way_points[1];
       const remainToNext=hav(here, routeCoords[wp]);
-      if(!stepPreviewed.has(nextStepIndex) && remainToNext<=PREVIEW_M){
-        const key=stepPreviewKey(step); const now=Date.now(); const last=previewHistory.get(key)||0;
-        if(now-last>=PREVIEW_COOLDOWN_MS){ stepPreviewed.add(nextStepIndex); previewHistory.set(key, now); speakLine(`300メートル先、${step.instruction||"進行方向です"}`); }
+      if(!stepPreviewed.has(nextStepIndex) && remainToNext<=300){
+        const key=(()=>{ const w=step?.way_points?.[1]??-1; const ins=(step?.instruction||"").trim(); return `${w}:${ins}`; })();
+        const now=Date.now(); const last=previewHistory.get(key)||0;
+        if(now-last>=45000){ stepPreviewed.add(nextStepIndex); previewHistory.set(key, now); speakLine(`300メートル先、${step.instruction||"進行方向です"}`); }
       }
-      if(remainToNext<=EXECUTE_M){ speakLine(step.instruction||"その先です"); }
+      if(remainToNext<=40){ speakLine(step.instruction||"その先です"); }
     }
 
     // オフルート→ヒステリシス→リルート
     const off=minDistanceToPolyline(here, routeCoords);
-    if(off>OFF_ROUTE_METERS){ offRouteCount++; } else { offRouteCount=0; }
+    if(off>90){ offRouteCount++; } else { offRouteCount=0; }
     const now=Date.now();
-    if(offRouteCount>=OFF_ROUTE_HYST_COUNT && (now-lastRerouteAt)>=REROUTE_COOLDOWN_MS){
+    if(offRouteCount>=3 && (now-lastRerouteAt)>=15000){
       lastRerouteAt=now; setStatus(`コース外 ${off|0}m → リルート中…`);
       try{
         const avoidTolls=document.getElementById("avoidTolls").checked;
@@ -456,24 +463,22 @@ async function beginWatch(){
   }, (err)=>{ console.error(err); toast("現在地の取得に失敗しました"); }, { enableHighAccuracy:true, maximumAge:2000, timeout:10000 });
 }
 
+/* ==== 追従トグル ==== */
+const btnFollowToggle = document.getElementById('btnFollowToggle');
+function updateFollowToggleLabel(){
+  btnFollowToggle.textContent = (followMode === 'course') ? '進行方向' : '北固定';
+}
+btnFollowToggle.addEventListener('click', ()=>{
+  followMode = (followMode === 'course') ? 'north' : 'course';
+  updateFollowToggleLabel();
+  autoFollow = true;      // 切替時は即追従
+  updateMapView();
+});
+
 /* ==== Events ==== */
 document.getElementById("btnSearch").addEventListener("click", onSearch);
 document.getElementById("btnStart").addEventListener("click", startNav);
 document.getElementById("btnStop").addEventListener("click", stopNav);
-
-// 追従モード（上部＆HUDの両方を同期）
-const followA = document.getElementById('followSelect');
-const followB = document.getElementById('followSelectHud');
-function setFollowMode(v){
-  followMode = v === 'course' ? 'course' : 'north';
-  localStorage.setItem('followMode', followMode);
-  followA.value = followMode; followB.value = followMode;
-  autoFollow = true; // 切り替え時は即追従
-  updateMapView();
-}
-followA.addEventListener('change', e=> setFollowMode(e.target.value));
-followB.addEventListener('change', e=> setFollowMode(e.target.value));
-setFollowMode(followMode);
 
 /* ==== Boot ==== */
 window.__boot(function(){
