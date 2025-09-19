@@ -17,7 +17,12 @@ export class MapController {
     this.followMode = 'course'; // 'course' | 'north'
     this.autoFollow = true;
     this.lastHeading = 0;
+    this._restoreTimer = null;
+    this._onFollowChange = ()=>{};
   }
+
+  setOnFollowChange(cb){ this._onFollowChange = typeof cb==='function' ? cb : ()=>{}; }
+  _emitFollow(){ this._onFollowChange(this.autoFollow); }
 
   init(){
     if (!window.maplibregl) throw new Error('MapLibre not loaded');
@@ -41,8 +46,8 @@ export class MapController {
     });
 
     // ユーザー操作 → 追従一時停止 → 5秒後に復帰
-    const pauseFollow = ()=>{ this.autoFollow = false; if (this._restoreTimer) clearTimeout(this._restoreTimer); };
-    const scheduleRestore = ()=>{ if (this._restoreTimer) clearTimeout(this._restoreTimer); this._restoreTimer = setTimeout(()=>{ this.autoFollow = true; }, 5000); };
+    const pauseFollow = ()=>{ this.setAutoFollow(false); if (this._restoreTimer) clearTimeout(this._restoreTimer); };
+    const scheduleRestore = ()=>{ if (this._restoreTimer) clearTimeout(this._restoreTimer); this._restoreTimer = setTimeout(()=>{ this.setAutoFollow(true); }, 5000); };
     this.map.on('dragstart', pauseFollow);
     this.map.on('rotatestart', pauseFollow);
     this.map.on('pitchstart', pauseFollow);
@@ -53,17 +58,11 @@ export class MapController {
 
   isReady(){ return this.mapReady; }
   setFollowMode(mode){ this.followMode = (mode==='north') ? 'north' : 'course'; }
-  setAutoFollow(v){ this.autoFollow = !!v; }
+  setAutoFollow(v){ const prev = this.autoFollow; this.autoFollow = !!v; if (prev!==this.autoFollow) this._emitFollow(); }
   setHeading(deg){ this.lastHeading = deg || 0; }
 
-  setHere(lngLat){
-    if (!this.mapReady){ this.markerQueue.push([lngLat,'pos']); return; }
-    this.#setMarkerImmediate(lngLat);
-  }
-  setGoal(lngLat){
-    if (!this.mapReady){ this.markerQueue.push([lngLat,'goal']); return; }
-    this.#setGoalImmediate(lngLat);
-  }
+  setHere(lngLat){ if (!this.mapReady){ this.markerQueue.push([lngLat,'pos']); return; } this.#setMarkerImmediate(lngLat); }
+  setGoal(lngLat){ if (!this.mapReady){ this.markerQueue.push([lngLat,'goal']); return; } this.#setGoalImmediate(lngLat); }
 
   #setMarkerImmediate(lngLat){
     if (!this.posMarker){ this.posMarker = new maplibregl.Marker({color:"#16a34a"}).setLngLat(lngLat).addTo(this.map); }
@@ -77,12 +76,10 @@ export class MapController {
   updateViewToHere(here){
     if (!this.mapReady || !here) return;
     const bearing = (this.followMode==='course') ? (this.lastHeading||0) : 0;
-    if (this.autoFollow){
-      this.map.easeTo({ center: here, bearing, duration: 300 });
-    }
+    if (this.autoFollow){ this.map.easeTo({ center: here, bearing, duration: 300 }); }
   }
-
   focusHere(here){ if (this.mapReady && here) this.map.easeTo({center:here, zoom:15}); }
+  recenter(here){ this.setAutoFollow(true); this.updateViewToHere(here); }
 
   drawRouteFeature(feature){
     if (!this.mapReady) return;

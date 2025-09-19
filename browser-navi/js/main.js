@@ -3,7 +3,7 @@ import { MapController } from './map.js';
 import { NavigationController } from './nav.js';
 import { bindUI } from './ui.js';
 
-// PWA（Service Worker）登録
+// PWA（Service Worker）
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js', { scope:'./' }).catch(console.error);
 }
@@ -17,7 +17,7 @@ if ('serviceWorker' in navigator) {
   const navCtrl = new NavigationController(mapCtrl);
   bindUI(mapCtrl, navCtrl);
 
-  // 初期位置だけ一度取得してセンターへ
+  // 初期位置を一度取得
   navigator.geolocation.getCurrentPosition((pos)=>{
     const here=[pos.coords.longitude,pos.coords.latitude];
     navCtrl.setHereInitial(here);

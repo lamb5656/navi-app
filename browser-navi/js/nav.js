@@ -1,4 +1,5 @@
 import { API_BASE, CONST } from './config.js';
+import { getSettings } from './settings.js';
 
 function toast(msg, ms=1800){ const el=document.getElementById("toast"); el.textContent=msg; el.style.display="block"; clearTimeout(el._t); el._t=setTimeout(()=>el.style.display="none", ms); }
 function hav(a,b){ const R=6371000, toRad=x=>x*Math.PI/180; const dLat=toRad(b[1]-a[1]), dLng=toRad(b[0]-a[0]), la1=toRad(a[1]), la2=toRad(b[1]); const A=Math.sin(dLat/2)**2+Math.cos(la1)*Math.cos(la2)*Math.sin(dLng/2)**2; return 2*R*Math.asin(Math.sqrt(A)); }
@@ -16,55 +17,67 @@ function computeCourseFromPositions(prev, curr){
   return (brng + 360) % 360;
 }
 
+/* 進行アイコン推定（ざっくりヒューリスティック） */
+function symbolForInstruction(instr=""){
+  const t = instr.toLowerCase();
+  if (t.includes('u-turn') || t.includes('uturn') || t.includes('u ターン') || t.includes('uターン')) return '↩︎';
+  if (t.includes('roundabout') || t.includes('ロータリー')) return '⟳';
+  if (t.includes('slight right') || t.includes('斜め右')) return '↗︎';
+  if (t.includes('slight left') || t.includes('斜め左')) return '↖︎';
+  if (t.includes('right') || t.includes('右')) return '↱';
+  if (t.includes('left') || t.includes('左')) return '↰';
+  if (t.includes('merge') || t.includes('ramp')) return '⤴︎';
+  return '⤴︎'; // straight/continue
+}
+function formatMeters(m){
+  if (!isFinite(m)) return '—';
+  if (m>=1000) return (m/1000).toFixed(1)+'km';
+  return Math.max(0, Math.round(m))+'m';
+}
+
 export class NavigationController {
   constructor(mapCtrl){
     this.map = mapCtrl;
-    // state
-    this.here = null;
-    this.goal = null;
-    this.routeCoords = [];
-    this.steps = [];
-    this.stepPreviewed = new Set();
-    this.previewHistory = new Map();
-    this.offRouteCount = 0;
-    this.lastRerouteAt = 0;
-    this.arrivalPreviewed = false;
-    this.watchId = null;
-    this.wakeLock = null;
+    this.here = null; this.goal = null;
+    this.routeCoords = []; this.steps = [];
+    this.stepPreviewed = new Set(); this.previewHistory = new Map();
+    this.offRouteCount = 0; this.lastRerouteAt = 0;
+    this.arrivalPreviewed = false; this.watchId = null; this.wakeLock = null;
 
-    // UI refs
     this.remainEl = document.getElementById("remainKm");
     this.etaEl = document.getElementById("eta");
     this.statusEl = document.getElementById("status");
 
-    // TTS
     this._lastSpeechAt = 0;
+
+    // maneuver UI refs
+    this.manu = document.getElementById('maneuver');
+    this.manIcon = document.getElementById('manIcon');
+    this.manDist = document.getElementById('manDist');
+    this.manInstr = document.getElementById('manInstr');
+    this.currentManIdx = -1;
   }
 
   setGoal(lngLat){ this.goal = lngLat; this.map.setGoal(lngLat); }
-
-  setHereInitial(lngLat){
-    this.here = lngLat;
-    this.map.setHere(lngLat);
-    this.map.focusHere(lngLat);
-  }
+  setHereInitial(lngLat){ this.here = lngLat; this.map.setHere(lngLat); this.map.focusHere(lngLat); }
 
   speak(text){
     const now = Date.now();
     if (now - this._lastSpeechAt < CONST.MIN_SPEECH_INTERVAL_MS) return;
     this._lastSpeechAt = now;
     try{
+      const s = getSettings();
       const u = new SpeechSynthesisUtterance(text);
-      u.rate = 1.0; u.pitch = 1.0;
-      window.speechSynthesis.cancel();
-      window.speechSynthesis.speak(u);
+      u.rate = s.ttsRate ?? 1.0; u.pitch = 1.0; u.volume = s.ttsVolume ?? 1.0;
+      window.speechSynthesis.cancel(); window.speechSynthesis.speak(u);
     }catch(e){ console.warn('TTS failed', e); }
   }
 
   setStatus(t){ this.statusEl.textContent = t; }
 
   async fetchRoute(start, goal, opt={}){
-    const body = JSON.stringify({ coordinates:[start, goal], avoidTolls: !!opt.avoidTolls });
+    const s = getSettings();
+    const body = JSON.stringify({ coordinates:[start, goal], avoidTolls: !!opt.avoidTolls, profile: s.profile });
     const res = await fetch(`${API_BASE}/route`, { method:'POST', headers:{'Content-Type':'application/json'}, body });
     if (!res.ok) throw new Error('route error');
     return res.json();
@@ -74,9 +87,8 @@ export class NavigationController {
     this.routeCoords = feature.geometry.coordinates;
     const seg = feature.properties?.segments?.[0] || {};
     this.steps = seg.steps || [];
-    this.stepPreviewed.clear();
-    this.previewHistory.clear();
-    this.arrivalPreviewed = false;
+    this.stepPreviewed.clear(); this.previewHistory.clear(); this.arrivalPreviewed = false;
+    this.currentManIdx = -1; this.hideManeuver();
     this.map.drawRouteFeature(feature);
     if (this.here) this.map.focusHere(this.here);
   }
@@ -94,7 +106,7 @@ export class NavigationController {
       document.getElementById('btnStart').disabled = true;
       document.getElementById('btnStop').disabled = false;
 
-      this.map.setFollowMode('course');            // デフォルト：進行方向
+      this.map.setFollowMode('course');
       document.getElementById('btnFollowToggle').textContent = '進行方向';
       this.map.setAutoFollow(true);
 
@@ -104,8 +116,7 @@ export class NavigationController {
       this.beginWatch();
       this.speak('案内を開始します');
     }catch(e){
-      console.error(e);
-      toast('ルート取得に失敗しました');
+      console.error(e); toast('ルート取得に失敗しました');
     }
   }
 
@@ -116,6 +127,7 @@ export class NavigationController {
     document.getElementById('btnStart').disabled = false;
     document.getElementById('btnStop').disabled = true;
     document.body.classList.remove('navigating');
+    this.hideManeuver();
     this.speak('案内を停止しました');
   }
 
@@ -123,9 +135,7 @@ export class NavigationController {
     this.remainEl.textContent = isFinite(remainMeters) ? (remainMeters/1000).toFixed(1) : '–';
     if (isFinite(etaSec)){
       const d = new Date(Date.now()+etaSec*1000);
-      const hh = String(d.getHours()).padStart(2,'0');
-      const mm = String(d.getMinutes()).padStart(2,'0');
-      this.etaEl.textContent = `${hh}:${mm}`;
+      this.etaEl.textContent = `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
     } else this.etaEl.textContent = '–:–';
   }
 
@@ -134,7 +144,7 @@ export class NavigationController {
     const idx = nearestIndex(point, this.routeCoords);
     let meters = hav(point, this.routeCoords[idx]);
     for (let i=idx;i<this.routeCoords.length-1;i++) meters += hav(this.routeCoords[i], this.routeCoords[i+1]);
-    const speed = 11.1; // m/s (~40km/h)
+    const speed = 11.1;
     return { meters, eta: meters / speed };
   }
 
@@ -147,12 +157,25 @@ export class NavigationController {
     );
   }
 
+  showManeuver(step, remainM){
+    if (!step) return this.hideManeuver();
+    this.manIcon.textContent = symbolForInstruction(step.instruction||'');
+    this.manDist.textContent = formatMeters(remainM);
+    this.manInstr.textContent = step.instruction || '進行方向です';
+    this.manu.style.display = 'flex';
+    // 簡易レーン表示（中央をアクティブに）
+    document.getElementById('lane1').classList.remove('active');
+    document.getElementById('lane2').classList.add('active');
+    document.getElementById('lane3').classList.remove('active');
+  }
+  hideManeuver(){ this.manu.style.display = 'none'; }
+
   #onPosition(pos){
     const prev = this.here;
     this.here = [pos.coords.longitude, pos.coords.latitude];
     this.map.setHere(this.here);
 
-    // heading: GPS優先→移動ベクトル
+    // heading
     let heading = (typeof pos.coords.heading === 'number' && !Number.isNaN(pos.coords.heading)) ? pos.coords.heading : null;
     if (heading == null){
       const c = computeCourseFromPositions(prev, this.here);
@@ -167,49 +190,41 @@ export class NavigationController {
     this.updateHUD(est.meters, est.eta);
 
     // 到着磨き：50m 予告 → 20m 到着
-    if (!this.arrivalPreviewed && est.meters <= 50){
-      this.arrivalPreviewed = true;
-      this.speak('まもなく目的地に到着します');
-    }
-    if (est.meters <= 20){
-      this.speak('目的地に到着しました');
-      toast('到着しました。おつかれさまにゃ');
-      this.stop();
-      return;
-    }
+    if (!this.arrivalPreviewed && est.meters <= 50){ this.arrivalPreviewed = true; this.speak('まもなく目的地に到着します'); }
+    if (est.meters <= 20){ this.speak('目的地に到着しました'); toast('到着しました。おつかれさまにゃ'); this.stop(); return; }
 
-    // 次ステップ案内
+    // 次ステップ案内 + 進行カード更新
     const idx = nearestIndex(this.here, this.routeCoords);
     let nextIdx = -1;
-    for (let i=0;i<this.steps.length;i++){
-      const wp = this.steps[i]?.way_points?.[1];
-      if (typeof wp === 'number' && wp > idx){ nextIdx = i; break; }
-    }
-    if (nextIdx >= 0){
-      const step = this.steps[nextIdx], wp = step.way_points[1];
-      const remainToNext = hav(this.here, this.routeCoords[wp]);
-      if (!this.stepPreviewed.has(nextIdx) && remainToNext <= CONST.PREVIEW_M){
-        const key = `${wp}:${(step.instruction||'').trim()}`;
-        const now = Date.now(); const last = this.previewHistory.get(key) || 0;
-        if (now - last >= CONST.PREVIEW_COOLDOWN_MS){
-          this.stepPreviewed.add(nextIdx);
-          this.previewHistory.set(key, now);
-          this.speak(`300メートル先、${step.instruction || '進行方向です'}`);
-        }
+    for (let i=0;i<this.steps.length;i++){ const wp=this.steps[i]?.way_points?.[1]; if (typeof wp==="number" && wp>idx){ nextIdx=i; break; } }
+    if (nextIdx>=0){
+      const step=this.steps[nextIdx], wp=step.way_points[1];
+      const remainToNext=hav(this.here, this.routeCoords[wp]);
+
+      // 300mカード表示・更新
+      if (remainToNext <= CONST.PREVIEW_M + 20){ this.showManeuver(step, remainToNext); this.currentManIdx = nextIdx; }
+      else { this.hideManeuver(); this.currentManIdx = -1; }
+
+      // 音声：300m予告（重複抑制）
+      if(!this.stepPreviewed.has(nextIdx) && remainToNext<=CONST.PREVIEW_M){
+        const key=`${wp}:${(step.instruction||'').trim()}`, now=Date.now(), last=this.previewHistory.get(key)||0;
+        if(now-last>=CONST.PREVIEW_COOLDOWN_MS){ this.stepPreviewed.add(nextIdx); this.previewHistory.set(key, now); this.speak(`300メートル先、${step.instruction||'進行方向です'}`); }
       }
-      if (remainToNext <= CONST.EXECUTE_M){
-        this.speak(step.instruction || 'その先です');
-      }
+      // 直前案内
+      if(remainToNext<=CONST.EXECUTE_M){ this.speak(step.instruction||'その先です'); this.hideManeuver(); }
+    } else {
+      this.hideManeuver();
     }
 
-    // オフルート検知 → ヒステリシス → リルート
+    // オフルート → ヒステリシス → リルート
     const off = minDistanceToPolyline(this.here, this.routeCoords);
     if (off > CONST.OFF_ROUTE_METERS) this.offRouteCount++; else this.offRouteCount = 0;
     const nowT = Date.now();
     if (this.offRouteCount >= CONST.OFF_ROUTE_HYST_COUNT && (nowT - this.lastRerouteAt) >= CONST.REROUTE_COOLDOWN_MS){
       this.lastRerouteAt = nowT;
       this.setStatus(`コース外 ${off|0}m → リルート中…`);
-      this.fetchRoute(this.here, this.goal, { avoidTolls: document.getElementById('avoidTolls')?.checked })
+      const avoidTolls = getSettings().avoidTolls;
+      this.fetchRoute(this.here, this.goal, { avoidTolls })
         .then(d=>{ const f=d.features[0]; this.setupGuidance(f); this.speak('ルートを再検索しました'); })
         .catch(console.error);
     }

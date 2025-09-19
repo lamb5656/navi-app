@@ -4,17 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SwitchVoiceNavi — ブラウザで動く音声ナビ</title>
-  <meta name="description" content="MapLibre × OpenRouteService。二段階音声案内、リルート、HUD、料金回避、PWA対応のブラウザナビ。">
+  <meta name="description" content="MapLibre × OpenRouteService。音声案内、リルート、HUD、料金回避、PWA対応のブラウザナビ。">
   <meta name="theme-color" content="#0f172a">
-
-  <!-- PWA -->
   <link rel="manifest" href="./manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-
-  <!-- MapLibre CSS（ローカル優先） -->
   <link href="./vendor/maplibre-gl.css" rel="stylesheet">
-  <!-- App styles -->
   <link href="./styles.css" rel="stylesheet">
 </head>
 <body>
@@ -23,6 +18,7 @@
       <div class="brand">SwitchVoiceNavi</div>
       <nav class="nav">
         <a href="howto.html" rel="noopener noreferrer">設定方法</a>
+        <a href="#" id="btnOpenSettings">設定</a>
       </nav>
     </div>
   </header>
@@ -30,13 +26,30 @@
   <div class="toolbar">
     <input id="addr" type="text" placeholder="目的地を検索（例：名古屋駅）">
     <button id="btnSearch" class="btn">検索</button>
-    <label><input id="avoidTolls" type="checkbox" checked> 有料道路回避</label>
+    <label><input id="avoidTolls" type="checkbox"> 有料道路回避</label>
     <button id="btnStart" class="btn primary">ナビ開始</button>
 
-    <!-- 追従トグル＆停止ボタン（ナビ中のみ右上固定で表示） -->
+    <!-- 追従トグル＆停止（ナビ中のみ右上固定で表示） -->
     <button id="btnFollowToggle" class="btn" type="button">進行方向</button>
     <button id="btnStop" class="btn" disabled>停止</button>
   </div>
+
+  <!-- 進行案内カード（300m手前〜実行まで表示） -->
+  <div id="maneuver" class="maneuver" aria-live="polite" aria-atomic="true">
+    <div class="icon" id="manIcon">⤴︎</div>
+    <div class="lane">
+      <span class="lane-mark" id="lane1"></span>
+      <span class="lane-mark active" id="lane2"></span>
+      <span class="lane-mark" id="lane3"></span>
+    </div>
+    <div class="text">
+      <div class="dist"><b id="manDist">—</b> 先</div>
+      <div class="sub" id="manInstr">次の案内</div>
+    </div>
+  </div>
+
+  <!-- 再中心（現在地へ戻る） -->
+  <button id="btnRecenter" class="fab" type="button" title="現在地へ戻る">◎</button>
 
   <div id="map" aria-label="map"></div>
 
@@ -49,12 +62,48 @@
   </div>
 
   <div id="toast" class="toast"></div>
+
+  <!-- 検索候補 -->
   <div id="searchCard" class="card" aria-modal="true" role="dialog">
     <header>検索候補</header>
     <div class="body" id="searchList"></div>
   </div>
 
-  <!-- JS Modules -->
+  <!-- 設定カード -->
+  <div id="settingsCard" class="card settings" role="dialog" aria-modal="true">
+    <header>設定</header>
+    <div class="body">
+      <div class="row"><label><input id="setAvoidTolls" type="checkbox"> 有料道路を回避</label></div>
+      <div class="row">
+        <label>プロフィール
+          <select id="setProfile">
+            <option value="driving-car">車</option>
+            <option value="foot-walking">徒歩</option>
+            <option value="cycling-regular">自転車</option>
+          </select>
+        </label>
+      </div>
+      <div class="row">
+        <label>TTS 音量 <input id="setTtsVolume" type="range" min="0" max="1" step="0.1"></label>
+      </div>
+      <div class="row">
+        <label>TTS 速度 <input id="setTtsRate" type="range" min="0.5" max="1.5" step="0.1"></label>
+      </div>
+      <div class="row">
+        <label>テーマ
+          <select id="setTheme">
+            <option value="auto">自動</option>
+            <option value="light">ライト</option>
+            <option value="dark">ダーク</option>
+          </select>
+        </label>
+      </div>
+      <div class="actions">
+        <button id="btnSettingsClose" class="btn">閉じる</button>
+      </div>
+    </div>
+  </div>
+
   <script type="module" src="./js/main.js"></script>
 </body>
 </html>
