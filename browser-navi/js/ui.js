@@ -11,6 +11,39 @@ function toast(msg, ms = 2000) {
   setTimeout(() => (t.style.opacity = '0'), ms);
 }
 
+/** なんでも解除して確実に表示する（!importantにも勝つ保険） */
+function forceShow(el) {
+  if (!el) return;
+  // 属性・クラスの不可視化を解除
+  el.removeAttribute('hidden');
+  el.removeAttribute('aria-hidden');
+  if (el.inert !== undefined) { try { el.inert = false; } catch {} }
+  el.classList.remove('is-hidden', 'hidden', 'd-none', 'u-hidden');
+
+  // inline styleの不可視化を解除
+  el.style.removeProperty('display');
+  el.style.removeProperty('visibility');
+  el.style.removeProperty('opacity');
+  el.style.removeProperty('pointer-events');
+
+  // !important対策のスタイルを一度だけ差し込む
+  let styleTag = document.getElementById('svn-force-style');
+  if (!styleTag) {
+    styleTag = document.createElement('style');
+    styleTag.id = 'svn-force-style';
+    styleTag.textContent = `
+      #settingsCard{ display:block !important; visibility:visible !important; opacity:1 !important; pointer-events:auto !important; }
+      #searchCard{ display:block !important; visibility:visible !important; opacity:1 !important; pointer-events:auto !important; }
+    `;
+    document.head.appendChild(styleTag);
+  }
+
+  // 前面＆画面内へ
+  if (!el.style.position) el.style.position = 'fixed';
+  if (!el.style.zIndex) el.style.zIndex = '1000';
+  try { el.scrollIntoView({ block: 'center' }); } catch {}
+}
+
 export function bindUI(mapCtrl, navCtrl){
   const $ = (id) => document.getElementById(id);
 
@@ -21,9 +54,12 @@ export function bindUI(mapCtrl, navCtrl){
     btnStop: $('btnStop'),
     btnFollowToggle: $('btnFollowToggle'),
     btnRecenter: $('btnRecenter'),
+
     avoidTollsToolbar: $('avoidTolls'),
+
     searchCard: $('searchCard'),
     searchList: $('searchList'),
+
     settingsCard: $('settingsCard'),
     btnOpenSettings: $('btnOpenSettings'),
     btnSettingsClose: $('btnSettingsClose'),
@@ -34,9 +70,11 @@ export function bindUI(mapCtrl, navCtrl){
     setTheme: $('setTheme'),
   };
 
+  // 初期UI
   if (els.btnFollowToggle) els.btnFollowToggle.style.display = 'none';
   if (els.btnStop) els.btnStop.disabled = true;
 
+  // 設定の同期
   const syncAvoidUIFromStore = () => {
     const v = !!getSetting('avoidTolls');
     if (els.avoidTollsToolbar) els.avoidTollsToolbar.checked = v;
@@ -51,13 +89,14 @@ export function bindUI(mapCtrl, navCtrl){
   };
   syncAvoidUIFromStore();
 
+  // 検索
   async function geocode(text){
     const url = `${API_BASE}/geocode?text=${encodeURIComponent(text)}`;
     const res = await withBackoff(() => fetch(url, { headers: { Accept: 'application/json' } }), { retries: 2, base: 400 });
     if (!res.ok) throw new Error('geocode failed');
     return res.json();
   }
-  function openSearchCard(){ if (els.searchCard) els.searchCard.style.display = ''; }
+  function openSearchCard(){ if (els.searchCard){ els.searchCard.style.display = ''; forceShow(els.searchCard); } }
   function closeSearchCard(){ if (els.searchCard) els.searchCard.style.display = 'none'; }
   function renderSearchResults(items){
     if (!els.searchList) return;
@@ -97,6 +136,7 @@ export function bindUI(mapCtrl, navCtrl){
     }
   }
 
+  // ナビ開始/停止
   const state = { goalLngLat: null };
 
   async function resolveHere(){
@@ -156,6 +196,7 @@ export function bindUI(mapCtrl, navCtrl){
     toast(next ? '追従を有効にしました' : '追従を停止しました');
   }
 
+  // 設定の開閉（forceShow対応版）
   function onOpenSettings(){
     log('onOpenSettings');
     if (!els.settingsCard) return;
@@ -165,6 +206,7 @@ export function bindUI(mapCtrl, navCtrl){
     if (els.setTheme)     els.setTheme.value     = getSetting('theme') || 'auto';
     syncAvoidUIFromStore();
     els.settingsCard.style.display = '';
+    forceShow(els.settingsCard); // ← ここがポイント
   }
   function onCloseSettings(){
     log('onCloseSettings');
