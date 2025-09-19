@@ -49,15 +49,15 @@
         loadScript('./vendor/maplibre-gl.js', function(){
           if (window.maplibregl) return cb();
           // 2) jsDelivr
-          loadScript('https://cdn.jsdelivr.net/npm/maplibre-gl@3.7.0/dist/maplibre-gl.js', function(){
+          loadScript('https://cdn.jsdelivr.net/npm/maplibre-gl@3.6.1/dist/maplibre-gl.js', function(){
             if (!document.querySelector('link[href*="maplibre-gl.css"]')){
-              loadCSS('https://cdn.jsdelivr.net/npm/maplibre-gl@3.7.0/dist/maplibre-gl.css');
+              loadCSS('https://cdn.jsdelivr.net/npm/maplibre-gl@3.6.1/dist/maplibre-gl.css');
             }
             if (window.maplibregl) return cb();
             // 3) unpkg
-            loadScript('https://unpkg.com/maplibre-gl@3.7.0/dist/maplibre-gl.js', function(){
+            loadScript('https://unpkg.com/maplibre-gl@3.6.1/dist/maplibre-gl.js', function(){
               if (!document.querySelector('link[href*="maplibre-gl.css"]')){
-                loadCSS('https://unpkg.com/maplibre-gl@3.7.0/dist/maplibre-gl.css');
+                loadCSS('https://unpkg.com/maplibre-gl@3.6.1/dist/maplibre-gl.css');
               }
               cb();
             });
