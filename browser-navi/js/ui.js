@@ -11,37 +11,37 @@ function toast(msg, ms = 2000) {
   setTimeout(() => (t.style.opacity = '0'), ms);
 }
 
-/** なんでも解除して確実に表示する（!importantにも勝つ保険） */
-function forceShow(el) {
-  if (!el) return;
-  // 属性・クラスの不可視化を解除
-  el.removeAttribute('hidden');
-  el.removeAttribute('aria-hidden');
-  if (el.inert !== undefined) { try { el.inert = false; } catch {} }
-  el.classList.remove('is-hidden', 'hidden', 'd-none', 'u-hidden');
-
-  // inline styleの不可視化を解除
-  el.style.removeProperty('display');
-  el.style.removeProperty('visibility');
-  el.style.removeProperty('opacity');
-  el.style.removeProperty('pointer-events');
-
-  // !important対策のスタイルを一度だけ差し込む
+/** 強制表示ヘルパー：開く時だけ .svn-force-open を付与。閉じる時は外す */
+function ensureForceStyle() {
   let styleTag = document.getElementById('svn-force-style');
   if (!styleTag) {
     styleTag = document.createElement('style');
     styleTag.id = 'svn-force-style';
     styleTag.textContent = `
-      #settingsCard{ display:block !important; visibility:visible !important; opacity:1 !important; pointer-events:auto !important; }
-      #searchCard{ display:block !important; visibility:visible !important; opacity:1 !important; pointer-events:auto !important; }
+      .svn-force-open{ display:block !important; visibility:visible !important; opacity:1 !important; pointer-events:auto !important; }
     `;
     document.head.appendChild(styleTag);
   }
-
-  // 前面＆画面内へ
+}
+function forceOpen(el) {
+  if (!el) return;
+  ensureForceStyle();
+  el.removeAttribute('hidden');
+  el.removeAttribute('aria-hidden');
+  if (el.inert !== undefined) { try { el.inert = false; } catch {} }
+  el.classList.remove('is-hidden','hidden','d-none','u-hidden');
+  el.style.removeProperty('display');
+  el.style.removeProperty('visibility');
+  el.style.removeProperty('opacity');
+  el.style.removeProperty('pointer-events');
+  el.classList.add('svn-force-open'); // ← 開くときだけ付与
   if (!el.style.position) el.style.position = 'fixed';
   if (!el.style.zIndex) el.style.zIndex = '1000';
-  try { el.scrollIntoView({ block: 'center' }); } catch {}
+}
+function forceClose(el) {
+  if (!el) return;
+  el.classList.remove('svn-force-open'); // ← これで !important を無効化
+  el.style.display = 'none';
 }
 
 export function bindUI(mapCtrl, navCtrl){
@@ -96,8 +96,15 @@ export function bindUI(mapCtrl, navCtrl){
     if (!res.ok) throw new Error('geocode failed');
     return res.json();
   }
-  function openSearchCard(){ if (els.searchCard){ els.searchCard.style.display = ''; forceShow(els.searchCard); } }
-  function closeSearchCard(){ if (els.searchCard) els.searchCard.style.display = 'none'; }
+  function openSearchCard(){
+    if (!els.searchCard) return;
+    els.searchCard.style.display = '';
+    forceOpen(els.searchCard);
+  }
+  function closeSearchCard(){
+    if (!els.searchCard) return;
+    forceClose(els.searchCard);
+  }
   function renderSearchResults(items){
     if (!els.searchList) return;
     els.searchList.innerHTML = '';
@@ -196,7 +203,7 @@ export function bindUI(mapCtrl, navCtrl){
     toast(next ? '追従を有効にしました' : '追従を停止しました');
   }
 
-  // 設定の開閉（forceShow対応版）
+  // 設定の開閉（.svn-force-open で制御）
   function onOpenSettings(){
     log('onOpenSettings');
     if (!els.settingsCard) return;
@@ -206,7 +213,7 @@ export function bindUI(mapCtrl, navCtrl){
     if (els.setTheme)     els.setTheme.value     = getSetting('theme') || 'auto';
     syncAvoidUIFromStore();
     els.settingsCard.style.display = '';
-    forceShow(els.settingsCard); // ← ここがポイント
+    forceOpen(els.settingsCard);
   }
   function onCloseSettings(){
     log('onCloseSettings');
@@ -217,7 +224,7 @@ export function bindUI(mapCtrl, navCtrl){
     if (els.setTtsRate)    setSetting('ttsSpeed',  Number(els.setTtsRate.value));
     if (els.setTheme)      setSetting('theme',     els.setTheme.value);
     syncAvoidUIFromStore();
-    els.settingsCard.style.display = 'none';
+    forceClose(els.settingsCard); // ← クラスを外してから display:none
     toast('設定を保存しました');
   }
 
