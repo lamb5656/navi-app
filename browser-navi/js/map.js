@@ -1,96 +1,157 @@
-import { TILE_URL } from './config.js';
+// /browser-navi/js/map.js
+// Map rendering utilities with both class-based and function exports.
 
-function bboxOfCoords(coords){
-  let minLng=Infinity,minLat=Infinity,maxLng=-Infinity,maxLat=-Infinity;
-  for(const [lng,lat] of coords){ if(lng<minLng)minLng=lng; if(lat<minLat)minLat=lat; if(lng>maxLng)maxLng=lng; if(lat>maxLat)maxLat=lat; }
-  return [[minLng,minLat],[maxLng,maxLat]];
+let defaultController = null;
+
+// ---- helpers ----
+function ensureRouteSource(map) {
+  if (!map.getSource('route')) {
+    map.addSource('route', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  }
+  if (!map.getLayer('route-line')) {
+    map.addLayer({
+      id: 'route-line',
+      type: 'line',
+      source: 'route',
+      paint: {
+        'line-width': 6,
+        'line-color': '#0078ff',
+        'line-opacity': 0.9
+      },
+      layout: { 'line-cap': 'round', 'line-join': 'round' }
+    });
+  }
 }
 
-export class MapController {
-  constructor(){
-    this.map = null;
-    this.mapReady = false;
-    this.routeLayerId = 'route-line';
-    this.posMarker = null;
-    this.goalMarker = null;
-    this.markerQueue = []; // [[lng,lat], 'pos'|'goal']
-    this.followMode = 'course'; // 'course' | 'north'
-    this.autoFollow = true;
-    this.lastHeading = 0;
-    this._restoreTimer = null;
-    this._onFollowChange = ()=>{};
+function toGeoJSON(routeData) {
+  // Accept a variety of shapes from ORS/OSRM/proxy responses
+  // 1) GeoJSON Feature/FeatureCollection
+  if (!routeData) {
+    return { type: 'FeatureCollection', features: [] };
+  }
+  if (routeData.type === 'FeatureCollection') {
+    return routeData;
+  }
+  if (routeData.type === 'Feature') {
+    return { type: 'FeatureCollection', features: [routeData] };
+  }
+  // 2) { geojson: Feature|FeatureCollection }
+  if (routeData.geojson) {
+    const g = routeData.geojson;
+    return g.type === 'FeatureCollection' ? g : { type: 'FeatureCollection', features: [g] };
+  }
+  // 3) ORS/OSRM-like { routes:[{ geometry: {type:'LineString', coordinates:[...]}}] }
+  const line =
+    routeData.routes?.[0]?.geometry && routeData.routes[0].geometry.type === 'LineString'
+      ? routeData.routes[0].geometry
+      : null;
+
+  if (line) {
+    return {
+      type: 'FeatureCollection',
+      features: [{ type: 'Feature', geometry: line, properties: {} }]
+    };
   }
 
-  setOnFollowChange(cb){ this._onFollowChange = typeof cb==='function' ? cb : ()=>{}; }
-  _emitFollow(){ this._onFollowChange(this.autoFollow); }
+  // Fallback: empty
+  return { type: 'FeatureCollection', features: [] };
+}
 
-  init(){
-    if (!window.maplibregl) throw new Error('MapLibre not loaded');
+// ---- class controller ----
+export class MapController {
+  constructor() {
+    this.map = null;
+    this.userMarker = null;
+  }
+
+  async init(containerId = 'map') {
+    // Minimal style with OSM raster (no external config required)
     const style = {
       version: 8,
-      sources: { osm: { type:'raster', tiles:[TILE_URL], tileSize:256, attribution:'© OpenStreetMap contributors' } },
-      layers: [
-        { id:'bg', type:'background', paint:{ 'background-color':'#dfe9f6' } },
-        { id:'osm', type:'raster', source:'osm' }
-      ]
+      sources: {
+        osm: {
+          type: 'raster',
+          tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+          tileSize: 256,
+          attribution:
+            '© OpenStreetMap contributors'
+        }
+      },
+      layers: [{ id: 'osm', type: 'raster', source: 'osm' }]
     };
-    this.map = new maplibregl.Map({ container:'map', style, center:[139.767,35.681], zoom:12, attributionControl:true });
-    this.map.addControl(new maplibregl.NavigationControl(), 'top-left');
 
-    this.map.on('load', ()=>{
-      this.mapReady = true;
-      while (this.markerQueue.length){
-        const [lngLat, kind] = this.markerQueue.shift();
-        if (kind==='pos') this.#setMarkerImmediate(lngLat); else this.#setGoalImmediate(lngLat);
-      }
+    // `maplibregl` is expected to be available after ensureMaplibre()
+    this.map = new maplibregl.Map({
+      container: containerId,
+      style,
+      center: [139.767, 35.681], // Tokyo Station default
+      zoom: 12
     });
 
-    // ユーザー操作 → 追従一時停止 → 5秒後に復帰
-    const pauseFollow = ()=>{ this.setAutoFollow(false); if (this._restoreTimer) clearTimeout(this._restoreTimer); };
-    const scheduleRestore = ()=>{ if (this._restoreTimer) clearTimeout(this._restoreTimer); this._restoreTimer = setTimeout(()=>{ this.setAutoFollow(true); }, 5000); };
-    this.map.on('dragstart', pauseFollow);
-    this.map.on('rotatestart', pauseFollow);
-    this.map.on('pitchstart', pauseFollow);
-    this.map.on('dragend', scheduleRestore);
-    this.map.on('rotateend', scheduleRestore);
-    this.map.on('pitchend', scheduleRestore);
+    // Add controls safely
+    this.map.addControl(new maplibregl.NavigationControl({ showCompass: true, showZoom: true }), 'top-right');
+
+    await new Promise((resolve) => this.map.on('load', resolve));
+
+    ensureRouteSource(this.map);
+
+    // Register as default controller (first one wins)
+    if (!defaultController) defaultController = this;
   }
 
-  isReady(){ return this.mapReady; }
-  setFollowMode(mode){ this.followMode = (mode==='north') ? 'north' : 'course'; }
-  setAutoFollow(v){ const prev = this.autoFollow; this.autoFollow = !!v; if (prev!==this.autoFollow) this._emitFollow(); }
-  setHeading(deg){ this.lastHeading = deg || 0; }
+  drawRoute(routeData) {
+    if (!this.map) return;
+    ensureRouteSource(this.map);
+    const geo = toGeoJSON(routeData);
+    const src = this.map.getSource('route');
+    if (src) src.setData(geo);
 
-  setHere(lngLat){ if (!this.mapReady){ this.markerQueue.push([lngLat,'pos']); return; } this.#setMarkerImmediate(lngLat); }
-  setGoal(lngLat){ if (!this.mapReady){ this.markerQueue.push([lngLat,'goal']); return; } this.#setGoalImmediate(lngLat); }
-
-  #setMarkerImmediate(lngLat){
-    if (!this.posMarker){ this.posMarker = new maplibregl.Marker({color:"#16a34a"}).setLngLat(lngLat).addTo(this.map); }
-    else { this.posMarker.setLngLat(lngLat); }
-  }
-  #setGoalImmediate(lngLat){
-    if (!this.goalMarker){ this.goalMarker = new maplibregl.Marker({color:"#ef4444"}).setLngLat(lngLat).addTo(this.map); }
-    else { this.goalMarker.setLngLat(lngLat); }
-  }
-
-  updateViewToHere(here){
-    if (!this.mapReady || !here) return;
-    const bearing = (this.followMode==='course') ? (this.lastHeading||0) : 0;
-    if (this.autoFollow){ this.map.easeTo({ center: here, bearing, duration: 300 }); }
-  }
-  focusHere(here){ if (this.mapReady && here) this.map.easeTo({center:here, zoom:15}); }
-  recenter(here){ this.setAutoFollow(true); this.updateViewToHere(here); }
-
-  drawRouteFeature(feature){
-    if (!this.mapReady) return;
-    const geo={ type:'FeatureCollection', features:[feature] };
-    if (this.map.getSource('route')) this.map.getSource('route').setData(geo);
-    else{
-      this.map.addSource('route', { type:'geojson', data:geo });
-      this.map.addLayer({ id:this.routeLayerId, type:'line', source:'route',
-        paint:{ 'line-color':'#2563eb', 'line-width':5, 'line-opacity':0.9 } });
+    // Fit bounds if we have a line
+    const feat = geo.features?.[0];
+    if (feat?.geometry?.type === 'LineString' && Array.isArray(feat.geometry.coordinates) && feat.geometry.coordinates.length) {
+      const coords = feat.geometry.coordinates;
+      const bounds = new maplibregl.LngLatBounds(coords[0], coords[0]);
+      for (const c of coords) bounds.extend(c);
+      this.map.fitBounds(bounds, { padding: 60, duration: 600 });
     }
-    const bbox=bboxOfCoords(feature.geometry.coordinates);
-    this.map.fitBounds(bbox,{ padding:50, maxZoom:16, duration:600 });
   }
+
+  clearRoute() {
+    if (!this.map) return;
+    const src = this.map.getSource('route');
+    if (src) src.setData({ type: 'FeatureCollection', features: [] });
+  }
+
+  followUser([lng, lat], { center = true, zoom = null } = {}) {
+    if (!this.map) return;
+    if (!this.userMarker) {
+      const el = document.createElement('div');
+      el.style.width = '14px';
+      el.style.height = '14px';
+      el.style.borderRadius = '50%';
+      el.style.background = '#ff2353';
+      el.style.boxShadow = '0 0 0 2px rgba(255,35,83,0.25)';
+      this.userMarker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([lng, lat]).addTo(this.map);
+    } else {
+      this.userMarker.setLngLat([lng, lat]);
+    }
+    if (center) {
+      const opts = { duration: 400 };
+      if (typeof zoom === 'number') opts.zoom = zoom;
+      this.map.easeTo({ center: [lng, lat], ...opts });
+    }
+  }
+}
+
+// ---- function exports (proxy to default controller) ----
+export function drawRoute(routeData) {
+  if (defaultController) defaultController.drawRoute(routeData);
+}
+
+export function clearRoute() {
+  if (defaultController) defaultController.clearRoute();
+}
+
+export function followUser(lnglat, opts) {
+  if (defaultController) defaultController.followUser(lnglat, opts);
 }

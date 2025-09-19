@@ -2,6 +2,7 @@
 // 検索UI・設定カード・ボタン束ね
 import { startNavigation, stopNavigation } from './nav.js';
 import { getSetting, setSetting } from './settings.js';
+initSettings();
 
 export function showToast(msg) {
   const t = document.createElement('div');
