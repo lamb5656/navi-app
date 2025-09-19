@@ -6,8 +6,8 @@
   <title>SwitchVoiceNavi — ブラウザで動く音声ナビ</title>
   <meta name="description" content="MapLibre × OpenRouteService。二段階音声案内、リルート、HUD、料金回避に対応したブラウザナビ。">
   <meta name="theme-color" content="#0f172a">
-  <link href="https://unpkg.com/maplibre-gl@3.7.0/dist/maplibre-gl.css" rel="stylesheet">
-  <script src="https://unpkg.com/maplibre-gl@3.7.0/dist/maplibre-gl.js"></script>
+  <!-- MapLibre CSS（まずは jsDelivr を使用） -->
+  <link href="https://cdn.jsdelivr.net/npm/maplibre-gl@3.7.0/dist/maplibre-gl.css" rel="stylesheet">
   <style>
     /* basic layout */
     :root{--container:1100px;--card:#fff;--ink:#0f172a;--muted:#64748b;--brand:#1b6ef3;}
@@ -41,6 +41,35 @@
       .hud-inner{flex-wrap:wrap}
     }
   </style>
+
+  <!-- ライブラリのフォールバックローダ（MapLibre/Turf） -->
+  <script>
+  (function(){
+    function loadScript(src, next){
+      var s=document.createElement('script');
+      s.src=src; s.async=false;
+      s.onload=next; s.onerror=next;
+      document.head.appendChild(s);
+    }
+    function ensureMaplibre(next){
+      if (window.maplibregl) return next();
+      loadScript('https://unpkg.com/maplibre-gl@3.7.0/dist/maplibre-gl.js', function(){
+        if (window.maplibregl) return next();
+        loadScript('https://cdn.jsdelivr.net/npm/maplibre-gl@3.7.0/dist/maplibre-gl.js', function(){
+          next();
+        });
+      });
+    }
+    function ensureTurf(next){
+      if (window.turf) return next();
+      loadScript('https://unpkg.com/@turf/turf@6.5.0/turf.min.js', function(){
+        if (window.turf) return next();
+        loadScript('https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js', function(){ next(); });
+      });
+    }
+    window.__loadLibs = function(cb){ ensureMaplibre(function(){ ensureTurf(cb); }); };
+  })();
+  </script>
 </head>
 <body>
   <header class="header">
@@ -77,11 +106,11 @@
   </div>
 
 <script>
-// ==== Config ====
+/* ==== Config ==== */
 const API_BASE = "https://ors-proxy.lamb565.workers.dev"; // CF Worker
 const TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 
-// ==== Map ====
+/* ==== Map ==== */
 let map, routeLayerId = "route-line", posMarker, goalMarker;
 const mapStyle = {
   "version": 8,
@@ -100,6 +129,7 @@ const mapStyle = {
 };
 
 function initMap() {
+  if (!window.maplibregl) { alert("地図ライブラリの読み込みに失敗しました。再読み込みしてください。"); return; }
   map = new maplibregl.Map({
     container: "map",
     style: mapStyle,
@@ -111,6 +141,7 @@ function initMap() {
 }
 
 function drawRouteFeature(feature){
+  if (!window.turf) { console.warn("turf not loaded yet"); return; }
   const geo = { "type":"FeatureCollection", "features":[feature] };
   if (map.getSource("route")) {
     map.getSource("route").setData(geo);
@@ -142,12 +173,11 @@ function setGoal(lngLat){
   }
 }
 
-// ==== Helpers ====
+/* ==== Helpers ==== */
 function toast(msg, ms=1800){ const el = document.getElementById("toast"); el.textContent = msg; el.style.display="block"; clearTimeout(el._t); el._t=setTimeout(()=>el.style.display="none", ms); }
-function formatKm(m){ return (m/1000).toFixed(1); }
 function hav(a,b){ const R=6371000; const toRad=x=>x*Math.PI/180; const dLat=toRad(b[1]-a[1]); const dLng=toRad(b[0]-a[0]); const la1=toRad(a[1]); const la2=toRad(b[1]); const A=Math.sin(dLat/2)**2+Math.cos(la1)*Math.cos(la2)*Math.sin(dLng/2)**2; return 2*R*Math.asin(Math.sqrt(A)); }
 function nearestIndex(point, line){ let mi=0, md=Infinity; for(let i=0;i<line.length;i++){ const d=hav(point,line[i]); if(d<md){md=d;mi=i;} } return mi; }
-function minDistanceToPolyline(point, line){ // simple vertex distance
+function minDistanceToPolyline(point, line){
   let md=Infinity;
   for(let i=1;i<line.length;i++){
     const d = pointToSegmentDistance(point, line[i-1], line[i]);
@@ -155,7 +185,7 @@ function minDistanceToPolyline(point, line){ // simple vertex distance
   }
   return md;
 }
-function pointToSegmentDistance(p,a,b){ // approximate on sphere using planar segments (short edges assumed)
+function pointToSegmentDistance(p,a,b){
   const toXY = (lnglat)=>{ const x = lnglat[0]*111320*Math.cos(lnglat[1]*Math.PI/180); const y = lnglat[1]*110540; return [x,y]; };
   const P = toXY(p), A = toXY(a), B = toXY(b);
   const AB = [B[0]-A[0], B[1]-A[1]];
@@ -167,7 +197,7 @@ function pointToSegmentDistance(p,a,b){ // approximate on sphere using planar se
   return Math.hypot(dx, dy);
 }
 
-// ==== Geocoding UI ====
+/* ==== Geocoding UI ==== */
 const addr = document.getElementById("addr");
 const card = document.getElementById("searchCard");
 const list = document.getElementById("searchList");
@@ -201,7 +231,7 @@ async function onSearch(){
   }
 }
 
-// ==== Routing & Guidance ====
+/* ==== Routing & Guidance ==== */
 let here = null, goal = null, routeCoords = [], steps = [];
 let watchId = null, wakeLock = null;
 let stepPreviewed = new Set();
@@ -313,7 +343,7 @@ function estimateRemainMetersAndETA(point){
   const idx = nearestIndex(point, routeCoords);
   let meters = hav(point, routeCoords[idx]);
   for (let i=idx;i<routeCoords.length-1;i++) meters += hav(routeCoords[i], routeCoords[i+1]);
-  const speed = 11.1; // m/s ~ 40km/h average as rough
+  const speed = 11.1; // m/s ~ 40km/h average
   const eta = meters / speed;
   return { meters, eta };
 }
@@ -393,21 +423,21 @@ async function beginWatch(){
   }, { enableHighAccuracy:true, maximumAge:2000, timeout:10000 });
 }
 
-// ==== Events ====
+/* ==== Events ==== */
+document.getElementById("btnSearch").addEventListener("click", onSearch);
 document.getElementById("btnStart").addEventListener("click", startNav);
 document.getElementById("btnStop").addEventListener("click", stopNav);
 
-// ready
-initMap();
-// try first position to center
-navigator.geolocation.getCurrentPosition((pos)=>{
-  here = [pos.coords.longitude, pos.coords.latitude];
-  setMarker(here);
-  map.easeTo({center: here, zoom: 15});
-}, ()=>{}, {enableHighAccuracy:true, timeout:5000});
+/* ==== 起動：ライブラリ読み込み後に実行 ==== */
+window.__loadLibs(function(){
+  initMap();
+  // try first position to center
+  navigator.geolocation.getCurrentPosition((pos)=>{
+    here = [pos.coords.longitude, pos.coords.latitude];
+    setMarker(here);
+    map.easeTo({center: here, zoom: 15});
+  }, ()=>{}, {enableHighAccuracy:true, timeout:5000});
+});
 </script>
-
-<!-- turf bbox minimal import (for fitBounds) -->
-<script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
 </body>
 </html>
