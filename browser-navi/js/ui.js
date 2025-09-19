@@ -1,38 +1,63 @@
-// js/ui.js
-// 検索UI・設定カード・ボタン束ね
-import { startNavigation, stopNavigation } from './nav.js';
-import { getSetting, setSetting } from './settings.js';
-initSettings();
+// /browser-navi/js/ui.js
+// UI bindings (no DOMContentLoaded hook; main.js calls bindUI)
 
-export function showToast(msg) {
+import { getSetting, setSetting } from './settings.js';
+
+export function showToast(msg, ms = 3000) {
   const t = document.createElement('div');
   t.className = 'toast';
   t.textContent = msg;
   document.body.appendChild(t);
-  setTimeout(() => t.remove(), 3000);
+  setTimeout(() => t.remove(), ms);
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  const startBtn = document.getElementById('btn-start');
-  const stopBtn = document.getElementById('btn-stop');
+/**
+ * Wire UI controls to controllers.
+ * @param {import('./map.js').MapController} mapCtrl
+ * @param {import('./nav.js').NavigationController} navCtrl
+ */
+export function bindUI(mapCtrl, navCtrl) {
+  // Settings controls
   const avoidChk = document.getElementById('chk-avoid');
   const profileSel = document.getElementById('sel-profile');
 
-  avoidChk.checked = !!getSetting('avoidTolls');
-  profileSel.value = getSetting('profile') || 'driving-car';
+  if (avoidChk) {
+    avoidChk.checked = !!getSetting('avoidTolls');
+    avoidChk.addEventListener('change', () => setSetting('avoidTolls', avoidChk.checked));
+  }
+  if (profileSel) {
+    profileSel.value = getSetting('profile') || 'driving-car';
+    profileSel.addEventListener('change', () => setSetting('profile', profileSel.value));
+  }
 
-  avoidChk.addEventListener('change', () => setSetting('avoidTolls', avoidChk.checked));
-  profileSel.addEventListener('change', () => setSetting('profile', profileSel.value));
+  // Start/Stop
+  const startBtn = document.getElementById('btn-start');
+  const stopBtn = document.getElementById('btn-stop');
 
-  startBtn.addEventListener('click', () => {
-    const start = document.getElementById('start-coord').value.split(',').map(Number);
-    const goal = document.getElementById('goal-coord').value.split(',').map(Number);
-    if (start.length === 2 && goal.length === 2) {
-      startNavigation([start, goal]);
-    } else {
-      showToast('座標を正しく入力するにゃ');
-    }
-  });
+  if (startBtn) {
+    startBtn.addEventListener('click', () => {
+      const s = (document.getElementById('start-coord')?.value || '').split(',').map(Number);
+      const g = (document.getElementById('goal-coord')?.value || '').split(',').map(Number);
+      if (s.length === 2 && g.length === 2 && s.every(n => !Number.isNaN(n)) && g.every(n => !Number.isNaN(n))) {
+        navCtrl.start([s, g]);
+      } else {
+        showToast('Invalid coordinates. Use "lng,lat".');
+      }
+    });
+  }
 
-  stopBtn.addEventListener('click', () => stopNavigation());
-});
+  if (stopBtn) {
+    stopBtn.addEventListener('click', () => navCtrl.stop());
+  }
+
+  // Recenter FAB (if present)
+  const recenterBtn = document.getElementById('btn-recenter');
+  if (recenterBtn) {
+    recenterBtn.addEventListener('click', () => {
+      // If we have an initial position, reuse it; otherwise no-op
+      // MapController follow is handled by NavigationController via geolocation updates.
+      // Here we can just provide a visual feedback.
+      showToast('Recentered.');
+    });
+  }
+}
