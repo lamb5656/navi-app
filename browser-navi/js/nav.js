@@ -5,7 +5,6 @@ import { withBackoff } from './libs/net.js';
 import { getSetting } from './settings.js';
 import { drawRoute, clearRoute, followUser } from './map.js';
 
-// Minimal toast (no dependency on ui.js to avoid circular imports)
 function toast(msg, ms = 3000) {
   try {
     const t = document.createElement('div');
@@ -16,7 +15,6 @@ function toast(msg, ms = 3000) {
   } catch {}
 }
 
-// Maneuver → icon key mapping (extend freely)
 const ICONS = {
   'turn-left': 'i-turn-left',
   'turn-right': 'i-turn-right',
@@ -24,28 +22,28 @@ const ICONS = {
   'turn-slight-right': 'i-slight-right',
   'turn-sharp-left': 'i-sharp-left',
   'turn-sharp-right': 'i-sharp-right',
-  'straight': 'i-straight',
-  'continue': 'i-straight',
-  'uturn': 'i-uturn',
-  'roundabout': 'i-roundabout',
-  'merge': 'i-merge',
+  straight: 'i-straight',
+  continue: 'i-straight',
+  uturn: 'i-uturn',
+  roundabout: 'i-roundabout',
+  merge: 'i-merge',
   'fork-left': 'i-fork-left',
   'fork-right': 'i-fork-right',
   'ramp-left': 'i-ramp-left',
-  'ramp-right': 'i-ramp-right',
+  'ramp-right': 'i-ramp-right'
 };
 
 function pickIcon(step) {
   const t = step?.maneuver?.type || '';
   const m = (step?.maneuver?.modifier || '').toLowerCase();
-  if (t === 'turn') return ICONS[`turn-${m}`] || ICONS['straight'];
-  if (t === 'roundabout' || t === 'rotary') return ICONS['roundabout'];
-  if (t === 'merge') return ICONS['merge'];
-  if (t === 'fork') return ICONS[`fork-${m}`] || ICONS['straight'];
-  if (t === 'ramp') return ICONS[`ramp-${m}`] || ICONS['straight'];
-  if (t === 'continue') return ICONS['continue'];
-  if (t === 'uturn') return ICONS['uturn'];
-  return ICONS['straight'];
+  if (t === 'turn') return ICONS[`turn-${m}`] || ICONS.straight;
+  if (t === 'roundabout' || t === 'rotary') return ICONS.roundabout;
+  if (t === 'merge') return ICONS.merge;
+  if (t === 'fork') return ICONS[`fork-${m}`] || ICONS.straight;
+  if (t === 'ramp') return ICONS[`ramp-${m}`] || ICONS.straight;
+  if (t === 'continue') return ICONS.continue;
+  if (t === 'uturn') return ICONS.uturn;
+  return ICONS.straight;
 }
 
 export class NavigationController {
@@ -55,11 +53,20 @@ export class NavigationController {
     this.watchId = null;
     this.lastStepIdx = -1;
     this.hereInitial = null;
+    this.followEnabled = false; // ← 追従フラグ
   }
 
   setHereInitial(lnglat) {
     this.hereInitial = lnglat;
-    followUser(lnglat, { center: true, zoom: 15 });
+    // まだ開始前は追従OFF想定なので centerしない
+    followUser(lnglat, { center: false });
+  }
+
+  setFollowEnabled(on) {
+    this.followEnabled = !!on;
+  }
+  isFollowEnabled() {
+    return !!this.followEnabled;
   }
 
   // ----- routing backends -----
@@ -67,7 +74,7 @@ export class NavigationController {
     const res = await fetch(`${API_BASE}/route`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(payload)
     });
     if (!res.ok) throw new Error('ORS route failed');
     return res.json();
@@ -104,6 +111,9 @@ export class NavigationController {
       this.currentRoute = data;
       drawRoute(data);
 
+      // ← 開始時に追従ON
+      this.setFollowEnabled(true);
+
       if (this.watchId) navigator.geolocation.clearWatch(this.watchId);
       this.watchId = navigator.geolocation.watchPosition(
         (pos) => this._onPosition(pos),
@@ -123,34 +133,26 @@ export class NavigationController {
     }
     this.currentRoute = null;
     this.lastStepIdx = -1;
+    this.setFollowEnabled(false); // ← 停止時は追従OFF
     clearRoute();
   }
 
   // ----- internals -----
   _onPosition(pos) {
-    if (!this.currentRoute) return;
     const { latitude, longitude } = pos.coords;
-    followUser([longitude, latitude], { center: true });
-
+    // 追従フラグに応じて center する/しない を切替
+    followUser([longitude, latitude], { center: this.followEnabled });
+    if (!this.currentRoute) return;
     this._updateInstructions([longitude, latitude]);
   }
 
   _updateInstructions([lng, lat]) {
-    const route0 =
-      this.currentRoute?.routes?.[0] ||
-      this.currentRoute?.geojson || // proxy form
-      null;
-
-    if (!route0) return;
-
-    // ORS style steps: routes[0].segments[0].steps
     let steps = [];
     if (this.currentRoute?.routes?.[0]?.segments?.[0]?.steps) {
       steps = this.currentRoute.routes[0].segments[0].steps;
     } else if (this.currentRoute?.steps) {
       steps = this.currentRoute.steps;
     }
-
     if (!steps.length) return;
 
     const idx = this._findNextStep(steps, [lng, lat]);
@@ -182,7 +184,7 @@ export class NavigationController {
       }
     }
     return minIdx;
-    }
+  }
 
   _speak(step) {
     try {
@@ -207,7 +209,6 @@ export class NavigationController {
   }
 }
 
-// (optional) named exports if other modules want them
 export function createNavigation(mapCtrl) {
   return new NavigationController(mapCtrl);
 }
