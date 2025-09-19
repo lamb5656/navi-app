@@ -1,3 +1,4 @@
+// /browser-navi/config.js
 export const API_BASE = "https://ors-proxy.lamb565.workers.dev";
 export const TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 
