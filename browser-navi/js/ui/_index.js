@@ -42,11 +42,8 @@ export function bindUI(mapCtrl, navCtrl){
   const routeApi = setupStartStop(els, navCtrl, {
     onGoalFixed: (place) => { addHistory(place); renderQuickLists(); },
     onStarted:   (place) => { addHistory(place); renderQuickLists(); },
-    // HUD sink: called every ~500ms by startstop.js (if navCtrl exposes progress)
-    onTick: (snap) => {
-      // snap: { distanceLeftMeters?, eta?, status? }
-      hud.update(snap);
-    }
+    // HUD sink
+    onTick: (snap) => { hud.update(snap); }
   });
 
   // buttons
@@ -67,8 +64,13 @@ export function bindUI(mapCtrl, navCtrl){
 
   renderQuickLists();
 
-  // delegation for safety
+  // ---- Delegation with guards (prevents "double tap to close") ----
   document.addEventListener('click', (e)=>{
+    // 1) 検索候補の内側なら、委譲は何もしない（候補の pointerdown を優先）
+    const insideSearchList = e.target instanceof Element && e.target.closest('#searchList');
+    if (insideSearchList) return;
+
+    // 2) 通常の委譲
     const q = (sel)=> e.target instanceof Element && e.target.closest(sel);
     if (q('#btnSearch'))        { e.preventDefault(); searchApi.onSearch(); return; }
     if (q('#btnStart'))         { e.preventDefault(); routeApi.onStart(searchApi); return; }
@@ -77,7 +79,7 @@ export function bindUI(mapCtrl, navCtrl){
     if (q('#btnOpenSettings'))  { e.preventDefault(); els.btnOpenSettings?.click(); return; }
     if (q('#btnSettingsClose')) { e.preventDefault(); els.btnSettingsClose?.click(); return; }
     if (q('#btnFavCurrent'))    { e.preventDefault(); Promise.resolve(searchApi.onFavCurrent()).then(()=>renderQuickLists()); return; }
-  });
+  }, { capture: true });
 
   // click-outside close for search card
   document.addEventListener('pointerdown', (e) => {
@@ -85,7 +87,10 @@ export function bindUI(mapCtrl, navCtrl){
     if (!open) return;
     const insideCard = els.searchCard.contains(e.target);
     const isInput = (e.target === els.addr || (els.addr && els.addr.contains && els.addr.contains(e.target)));
-    if (!insideCard && !isInput) forceClose(els.searchCard);
+    if (!insideCard && !isInput) {
+      e.stopPropagation(); // 外側ハンドラの再オープンを抑止
+      forceClose(els.searchCard);
+    }
   }, true);
 
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && els.searchCard) forceClose(els.searchCard); });

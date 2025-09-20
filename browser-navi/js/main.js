@@ -1,4 +1,5 @@
-// /browser-navi/js/main.js
+// Boot sequence: create map, nav, wire UI, and expose controllers to window.
+
 import { ensureMaplibre } from './libs/maplibre-loader.js';
 import { MapController } from './map.js';
 import { NavigationController } from './nav.js';
@@ -13,14 +14,16 @@ if ('serviceWorker' in navigator) {
   try {
     await ensureMaplibre();
 
+    // 1) Map
     const mapCtrl = new MapController();
     if (typeof mapCtrl.init === 'function') {
       await mapCtrl.init();
     }
 
+    // 2) Navigation
     const navCtrl = new NavigationController(mapCtrl);
 
-    // ---- bind UI after DOM is ready (保険で二重に待つ) ----
+    // 3) Bind UI after DOM ready
     const ready = (fn) => {
       if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', fn, { once: true });
@@ -31,14 +34,16 @@ if ('serviceWorker' in navigator) {
     ready(() => {
       try {
         bindUI(mapCtrl, navCtrl);
-        // デバッグ用ログ（必要ならコメントアウト可）
-        console.log('[SVN] UI bound');
+        // ★ HUD/デバッグ用に window に公開（これが無いと UI から見えない）
+        window.mapCtrl = mapCtrl;
+        window.navCtrl = navCtrl;
+        console.log('[SVN] UI bound & controllers exposed on window');
       } catch (e) {
         console.error('[SVN] bindUI failed', e);
       }
     });
 
-    // 初期位置を一度取得（あれば追従はOFFのまま座標だけセット）
+    // 初回位置（表示だけ。追従は開始後に切り替え）
     if ('geolocation' in navigator && typeof navCtrl.setHereInitial === 'function') {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
