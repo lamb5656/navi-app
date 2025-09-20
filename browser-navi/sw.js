@@ -1,6 +1,6 @@
 // sw.js (SwitchVoiceNavi)
 // Version bump on every deploy to bust caches.
-const VERSION = '2025-09-20-08';
+const VERSION = '2025-09-20-09';
 const STATIC_CACHE = `svn-static-${VERSION}`;
 const RUNTIME_CACHE = `svn-runtime-${VERSION}`;
 const TILE_CACHE = `svn-tiles-${VERSION}`;
