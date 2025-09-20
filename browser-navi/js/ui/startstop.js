@@ -2,11 +2,8 @@ import { toast } from './dom.js';
 import { API_BASE } from '../../config.js';
 import { withBackoff } from '../libs/net.js';
 
-// Periodic polling interval (ms) to pull HUD snapshot from navCtrl when available
-const HUD_POLL_MS = 500;
-
 export function setupStartStop(els, navCtrl, hooks){
-  const state = { goalLngLat: null, hudTimer: null };
+  const state = { goalLngLat: null };
 
   // hide maneuver panel until navigation actually starts
   const manEl = document.getElementById('maneuver');
@@ -30,10 +27,7 @@ export function setupStartStop(els, navCtrl, hooks){
     const lat = Number(first.lat ?? first.latitude ?? first.center?.[1]);
     return [lng, lat];
   }
-  const featureToLL = (f)=> {
-    const c = f?.geometry?.coordinates;
-    return c && { lon: Number(c[0]), lat: Number(c[1]) };
-  };
+  const featureToLL = (f)=> { const c = f?.geometry?.coordinates; return c && { lon: Number(c[0]), lat: Number(c[1]) }; };
 
   async function ensureGoal(searchApi){
     if (state.goalLngLat) return state.goalLngLat;
@@ -57,32 +51,6 @@ export function setupStartStop(els, navCtrl, hooks){
     });
   }
 
-  function startHudLoop() {
-    stopHudLoop();
-    state.hudTimer = setInterval(() => {
-      // Try several shapes: getHud(), getProgress(), or plain property
-      const snap =
-        (typeof navCtrl.getHud === 'function' && navCtrl.getHud()) ||
-        (typeof navCtrl.getProgress === 'function' && navCtrl.getProgress()) ||
-        navCtrl.hud ||
-        null;
-      if (!snap) return;
-
-      // Normalize field names
-      const distanceLeftMeters =
-        Number(snap.distanceLeftMeters ?? snap.distance_left_m ?? snap.remainingMeters ?? snap.distance);
-      const eta =
-        snap.eta ?? snap.etaMs ?? snap.etaEpoch ?? snap.arrivalTime ?? null;
-      const status =
-        snap.status ?? snap.phase ?? (snap.recalculating ? '再探索中' : '案内中');
-
-      hooks?.onTick && hooks.onTick({ distanceLeftMeters, eta, status });
-    }, HUD_POLL_MS);
-  }
-  function stopHudLoop() {
-    if (state.hudTimer) { clearInterval(state.hudTimer); state.hudTimer = null; }
-  }
-
   async function onStart(searchApi){
     try{
       const goal = await ensureGoal(searchApi);
@@ -91,9 +59,11 @@ export function setupStartStop(els, navCtrl, hooks){
       const here = await resolveHere();
       hooks?.onGoalFixed && hooks.onGoalFixed({ name: (els.addr?.value || '目的地'), lng: Number(goal[0]), lat: Number(goal[1]) });
 
+      // subscribe HUD events BEFORE start (so first snapshot is received)
+      const off = navCtrl.onProgress?.((snap)=> hooks?.onTick && hooks.onTick(snap));
+
       await navCtrl.start([here, goal]);
 
-      // show maneuver panel once navigation starts
       if (manEl) manEl.style.display = '';
 
       if (els.btnFollowToggle){
@@ -103,22 +73,20 @@ export function setupStartStop(els, navCtrl, hooks){
       }
       if (els.btnStop) els.btnStop.disabled = false;
 
-      // Start HUD polling after navigation starts
-      startHudLoop();
-
       hooks?.onStarted && hooks.onStarted({ name: (els.addr?.value || '目的地'), lng: Number(goal[0]), lat: Number(goal[1]) });
       hooks?.onTick && hooks.onTick({ status: '案内中' });
+
+      // store cleaner
+      state._offProgress = off;
       toast('ナビを開始しました');
     }catch(e){ console.error(e); toast('ナビの開始に失敗しました'); }
   }
 
   function onStop(){
     try { navCtrl.stop?.(); } catch {}
-    stopHudLoop();
+    if (state._offProgress) { try { state._offProgress(); } catch {} state._offProgress = null; }
 
-    // hide maneuver panel on stop
     if (manEl) manEl.style.display = 'none';
-
     if (els.btnFollowToggle) els.btnFollowToggle.style.display = 'none';
     if (els.btnStop) els.btnStop.disabled = true;
     hooks?.onTick && hooks.onTick({ distanceLeftMeters: NaN, eta: null, status: '待機中' });

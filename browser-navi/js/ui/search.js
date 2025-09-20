@@ -4,39 +4,19 @@ import { withBackoff } from '../libs/net.js';
 import { toggleFavorite } from './favorites.js';
 import { renderQuickLists } from './favorites.js';
 
-// Format "display_name" from Nominatim-like strings into Japanese order.
-// Example: "名古屋駅, 名駅通, 名駅一丁目, 中村区, 名古屋市, 愛知県, 450-6013, 日本"
-// -> "愛知県名古屋市中村区名駅一丁目 名古屋駅"
 function formatAddressJa(raw) {
   if (!raw) return '';
   const parts = String(raw).split(',').map(s => s.trim()).filter(Boolean);
-
-  // remove trailing "日本" and postal code like 123-4567
   const cleaned = parts.filter(s => s !== '日本' && !/^\d{3}-\d{4}$/.test(s));
-
-  // heuristics
-  const hasSuffix = (suf) => (s) => s.endsWith(suf);
-  const pref   = cleaned.find(s => /(都|道|府|県)$/.test(s)); // 東京都, 北海道, 大阪府, 京都府, ～県
-  const city   = cleaned.find(hasSuffix('市'));
-  const ward   = cleaned.find(hasSuffix('区'));
-  const town   = cleaned.find(s => /(丁目|町|村)$/.test(s));
-
-  // POI (landmark) is often the first item
-  const poi = cleaned[0];
-
-  // Build core without duplicates
+  const pref = cleaned.find(s => /(都|道|府|県)$/.test(s));
+  const city = cleaned.find(s => s.endsWith('市'));
+  const ward = cleaned.find(s => s.endsWith('区'));
+  const town = cleaned.find(s => /(丁目|町|村)$/.test(s));
+  const poi  = cleaned[0];
   const uniq = [];
-  for (const v of [pref, city, ward, town]) {
-    if (v && !uniq.includes(v)) uniq.push(v);
-  }
+  for (const v of [pref, city, ward, town]) if (v && !uniq.includes(v)) uniq.push(v);
   const core = uniq.join('');
-
-  // If nothing matched, just fallback to joined string
-  if (!core && poi) return poi;
-
-  // Append POI at the end with a space
-  if (poi && !uniq.includes(poi)) return `${core} ${poi}`;
-  return core || cleaned.join(' ');
+  return poi && !uniq.includes(poi) ? (core ? `${core} ${poi}` : poi) : (core || cleaned.join(' '));
 }
 
 export function setupSearch(els, mapCtrl){
@@ -50,11 +30,7 @@ export function setupSearch(els, mapCtrl){
       return data.features.map(f=>{
         const c = f?.geometry?.coordinates;
         const props = f?.properties || {};
-        return c && {
-          lon: Number(c[0]),
-          lat: Number(c[1]),
-          display_name: props.display_name || props.name || ''
-        };
+        return c && { lon: Number(c[0]), lat: Number(c[1]), display_name: props.display_name || props.name || '' };
       }).filter(Boolean);
     }
     if (Array.isArray(data?.items)) return data.items;
@@ -103,14 +79,19 @@ export function setupSearch(els, mapCtrl){
         e.preventDefault(); e.stopPropagation();
         state.goalLngLat = [lng, lat];
         if (els.addr) { els.addr.value = nameJa; try{ els.addr.blur(); }catch{} }
-        try {
-          if (mapCtrl?.map) mapCtrl.map.easeTo({ center: state.goalLngLat, zoom: Math.max(mapCtrl.map.getZoom(), 14), duration: 400 });
-        } catch {}
+        try { if (mapCtrl?.map) mapCtrl.map.easeTo({ center: state.goalLngLat, zoom: Math.max(mapCtrl.map.getZoom(), 14), duration: 400 }); } catch {}
+        // Close immediately and suppress any bubbling closers/openers
         closeSearch();
-        toast('目的地を設定しました');
+        return false;
       };
 
-      btn.addEventListener('pointerdown', onPick, { passive: false });
+      // use pointerdown only, and capture to beat document handlers
+      btn.addEventListener('pointerdown', onPick, { passive: false, capture: true });
+
+      // kill legacy click/touch to avoid double-trigger requirement
+      btn.addEventListener('click', (e)=>{ e.preventDefault(); e.stopPropagation(); }, { capture: true });
+      btn.addEventListener('touchend', (e)=>{ e.preventDefault(); e.stopPropagation(); }, { capture: true });
+
       els.searchList.appendChild(btn);
     }
     openSearch();
@@ -147,20 +128,13 @@ export function setupSearch(els, mapCtrl){
 
   async function onFavCurrent(){
     const goal = state.goalLngLat || await ensureGoalFromInput();
-    if (!goal){ toast('先に目的地を選んでにゃ'); return; }
+    if (!goal){ toast('先に目的地を選んでください'); return; }
     const name = (els.addr?.value || '目的地').trim();
     toggleFavorite({ name, lng: Number(goal[0]), lat: Number(goal[1]) });
     renderQuickLists();
     if (els.appMenu) els.appMenu.open = true;
-    toast('お気に入りに登録したにゃ');
+    toast('お気に入りに登録してください');
   }
 
-  return {
-    state,
-    onSearch,
-    openSearch,
-    closeSearch,
-    ensureGoalFromInput,
-    onFavCurrent,
-  };
+  return { state, onSearch, openSearch, closeSearch, ensureGoalFromInput, onFavCurrent };
 }
