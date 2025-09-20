@@ -1,13 +1,14 @@
 // /browser-navi/js/ui.js
-import { getSetting, setSetting } from './settings.js';
+import { getSetting, setSetting, StorageKeys, loadList, saveList, trimMax, upsertPlace, makePlaceId } from './settings.js';
 import { withBackoff } from './libs/net.js';
-import { API_BASE } from '../config.js';
+import { API_BASE, HISTORY_MAX, FAVORITES_MAX, MERGE_DISTANCE_M } from '../config.js';
+import { setGoalAndMaybeStart } from './nav.js';
 
 function log(...args){ try{ console.log('[SVN]', ...args); }catch{} }
 function toast(msg, ms = 2000) {
   let t = document.getElementById('toast');
   if (!t) { t = document.createElement('div'); t.id = 'toast'; t.className = 'toast'; document.body.appendChild(t); }
-  t.textContent = msg; t.style.opacity = '1';
+  t.textContent = msg; t.style.opacity = '1'; t.style.display = 'block';
   setTimeout(() => (t.style.opacity = '0'), ms);
 }
 
@@ -45,10 +46,17 @@ export function bindUI(mapCtrl, navCtrl){
     setTtsVolume: $('setTtsVolume'),
     setTtsRate: $('setTtsRate'),
     setTheme: $('setTheme'),
+    appMenu: $('appMenu'),
+    favoritesList: $('favorites-list'),
+    historyList: $('history-list'),
+    historyClear: $('history-clear'),
+    btnFavCurrent: $('btnFavCurrent'),
   };
 
   if (els.btnFollowToggle) els.btnFollowToggle.style.display = 'none';
   if (els.btnStop) els.btnStop.disabled = true;
+
+  const state = { goalLngLat: null }; // [lng, lat]
 
   const syncAvoidUIFromStore = () => {
     const v = !!getSetting('avoidTolls');
@@ -70,10 +78,7 @@ export function bindUI(mapCtrl, navCtrl){
     const res = await withBackoff(() => fetch(url, { headers: { Accept: 'application/json' } }), { retries: 1, base: 300 });
     if (!res.ok) throw new Error(`geocode http ${res.status}`);
     const data = await res.json();
-    log('geocode raw', data);
-    const items = normalizeGeocode(data);
-    log('geocode normalized', items?.length);
-    return items;
+    return normalizeGeocode(data);
   }
 
   function normalizeGeocode(data){
@@ -81,12 +86,10 @@ export function bindUI(mapCtrl, navCtrl){
     if (Array.isArray(data?.results)) return data.results;
     if (Array.isArray(data?.data)) return data.data;
     if (Array.isArray(data?.features)) {
-      return data.features
-        .map(f=>{
-          const c = f?.geometry?.coordinates;
-          return c && { lon: Number(c[0]), lat: Number(c[1]), display_name: f?.properties?.display_name || f?.properties?.name || '' };
-        })
-        .filter(Boolean);
+      return data.features.map(f=>{
+        const c = f?.geometry?.coordinates;
+        return c && { lon: Number(c[0]), lat: Number(c[1]), display_name: f?.properties?.display_name || f?.properties?.name || '' };
+      }).filter(Boolean);
     }
     if (Array.isArray(data?.items)) return data.items;
     if (Array.isArray(data?.places)) return data.places;
@@ -94,12 +97,108 @@ export function bindUI(mapCtrl, navCtrl){
     return [];
   }
 
+  // ---------- Quick Lists (Favorites & History) ----------
+  function chipHtml(p, idx, isFav) {
+    const star = isFavorite(p) ? '★' : '☆';
+    const name = escapeHtml(p.name || '目的地');
+    return `
+      <div class="svn-chip">
+        <div>
+          <div>${name}</div>
+          <div class="meta">${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}</div>
+        </div>
+        <div class="actions">
+          <button class="svn-iconbtn act-start" title="Start" data-key="${isFav?'fav':'hist'}" data-idx="${idx}">▶</button>
+          <button class="svn-iconbtn act-fav" title="Favorite" data-key="${isFav?'fav':'hist'}" data-idx="${idx}">${star}</button>
+          <button class="svn-iconbtn act-del" title="Delete" data-key="${isFav?'fav':'hist'}" data-idx="${idx}">✕</button>
+        </div>
+      </div>
+    `;
+  }
+  function escapeHtml(s){ return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+
+  export function renderQuickLists() {
+    if (!els.favoritesList || !els.historyList) return;
+    const favs = loadList(StorageKeys.FAVORITES);
+    const hist = loadList(StorageKeys.HISTORY);
+    els.favoritesList.innerHTML = favs.map((p,i)=>chipHtml(p,i,true)).join('') || '<div class="sr-empty">お気に入りはまだありません</div>';
+    els.historyList.innerHTML   = hist.map((p,i)=>chipHtml(p,i,false)).join('') || '<div class="sr-empty">履歴はまだありません</div>';
+
+    // bind actions
+    (els.favoritesList.querySelectorAll('.act-start') ?? []).forEach(btn=>{
+      btn.addEventListener('click', (e)=>{
+        const idx = Number(btn.dataset.idx);
+        const p = loadList(StorageKeys.FAVORITES)[idx];
+        if (!p) return;
+        setGoalAndMaybeStart(p);
+      });
+    });
+    (els.historyList.querySelectorAll('.act-start') ?? []).forEach(btn=>{
+      btn.addEventListener('click', (e)=>{
+        const idx = Number(btn.dataset.idx);
+        const p = loadList(StorageKeys.HISTORY)[idx];
+        if (!p) return;
+        setGoalAndMaybeStart(p);
+      });
+    });
+    [...els.favoritesList.querySelectorAll('.act-fav'), ...els.historyList.querySelectorAll('.act-fav')].forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const k = btn.dataset.key; const idx = Number(btn.dataset.idx);
+        const list = loadList(k==='fav' ? StorageKeys.FAVORITES : StorageKeys.HISTORY);
+        const p = list[idx]; if (!p) return;
+        toggleFavorite(p);
+        renderQuickLists();
+      });
+    });
+    [...els.favoritesList.querySelectorAll('.act-del'), ...els.historyList.querySelectorAll('.act-del')].forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const k = btn.dataset.key; const idx = Number(btn.dataset.idx);
+        const key = k==='fav' ? StorageKeys.FAVORITES : StorageKeys.HISTORY;
+        const list = loadList(key);
+        list.splice(idx,1); saveList(key, list);
+        renderQuickLists();
+      });
+    });
+  }
+
+  export function toggleFavorite(place) {
+    const favs = loadList(StorageKeys.FAVORITES);
+    const id = place.id || makePlaceId(place.lat, place.lng);
+    const idx = favs.findIndex(p => (p.id || makePlaceId(p.lat, p.lng)) === id);
+    if (idx >= 0) { favs.splice(idx, 1); }
+    else {
+      favs.unshift({ ...place, id, addedAt: Date.now() });
+      trimMax(favs, FAVORITES_MAX);
+    }
+    saveList(StorageKeys.FAVORITES, favs);
+  }
+
+  export function isFavorite(place) {
+    const favs = loadList(StorageKeys.FAVORITES);
+    const id = place.id || makePlaceId(place.lat, place.lng);
+    return favs.some(p => (p.id || makePlaceId(p.lat, p.lng)) === id);
+  }
+
+  export function addHistory(place) {
+    const hist = loadList(StorageKeys.HISTORY);
+    const now = Date.now();
+    const withId = { ...place, id: place.id || makePlaceId(place.lat, place.lng), ts: now };
+    const merged = upsertPlace(hist, withId, MERGE_DISTANCE_M);
+    trimMax(merged, HISTORY_MAX);
+    saveList(StorageKeys.HISTORY, merged);
+  }
+
+  // 初期描画
+  renderQuickLists();
+  if (els.historyClear){
+    els.historyClear.addEventListener('click', ()=>{ saveList(StorageKeys.HISTORY, []); renderQuickLists(); toast('履歴をクリアしました'); });
+  }
+
   // ---------- Search UI (single-tap to pick & close) ----------
   function openSearchCard(){ if (els.searchCard){ forceOpen(els.searchCard); } }
   function closeSearchCard(){
     if (!els.searchCard) return;
     forceClose(els.searchCard);
-    // blur input to avoid secondary "tap-to-focus then tap-to-activate" behavior on iOS
     if (document.activeElement === els.addr) els.addr.blur();
   }
 
@@ -125,24 +224,23 @@ export function bindUI(mapCtrl, navCtrl){
       btn.dataset.lng = String(lng);
       btn.dataset.lat = String(lat);
 
-      // One-tap selection handler (pointerdown first on mobile)
       let handled = false;
       const onPick = (e)=>{
-        if (handled) return;
-        handled = true;
-        e.preventDefault();
-        e.stopPropagation();
-        const nm  = btn.dataset.name || '';
-        const lon = Number(btn.dataset.lng);
-        const la  = Number(btn.dataset.lat);
+        if (handled) return; handled = true;
+        e.preventDefault(); e.stopPropagation();
 
-        state.goalLngLat = [lon, la];
-        if (els.addr) els.addr.value = nm;
+        state.goalLngLat = [Number(btn.dataset.lng), Number(btn.dataset.lat)];
+        if (els.addr) els.addr.value = btn.dataset.name || '';
 
         try {
           if (mapCtrl?.map) mapCtrl.map.easeTo({ center: state.goalLngLat, zoom: Math.max(mapCtrl.map.getZoom(), 14), duration: 400 });
         } catch {}
-        closeSearchCard(); // close immediately on first tap
+
+        // ★ ここで履歴に追加
+        addHistory({ name: els.addr?.value || '目的地', lng: state.goalLngLat[0], lat: state.goalLngLat[1] });
+        renderQuickLists();
+
+        closeSearchCard();
         toast('目的地を設定しました');
       };
 
@@ -155,7 +253,6 @@ export function bindUI(mapCtrl, navCtrl){
 
   async function onSearch(){
     const q = (els.addr?.value || '').trim();
-    log('onSearch', q);
     if (!q){ toast('検索ワードを入力してください'); return; }
     if (els.searchList) els.searchList.innerHTML = '<div class="sr-loading">検索中…</div>';
     try {
@@ -168,7 +265,7 @@ export function bindUI(mapCtrl, navCtrl){
     }
   }
 
-  // Close the search card when tapping outside of it
+  // カード外タップで閉じる
   document.addEventListener('pointerdown', (e) => {
     const open = !!els.searchCard && els.searchCard.style.display !== 'none';
     if (!open) return;
@@ -177,14 +274,10 @@ export function bindUI(mapCtrl, navCtrl){
     if (!insideCard && !isInput) closeSearchCard();
   }, true);
 
-  // Close with Escape key
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeSearchCard();
-  });
+  // Escapeで閉じる
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSearchCard(); });
 
   // ---------- Start / Stop ----------
-  const state = { goalLngLat: null };
-
   async function resolveHere(){
     if (navCtrl?.hereInitial && Array.isArray(navCtrl.hereInitial)) return navCtrl.hereInitial;
     return new Promise((resolve)=>{
@@ -198,7 +291,6 @@ export function bindUI(mapCtrl, navCtrl){
   }
 
   async function onStart(){
-    log('onStart');
     try{
       if (!state.goalLngLat){
         const q = (els.addr?.value || '').trim();
@@ -218,6 +310,10 @@ export function bindUI(mapCtrl, navCtrl){
       const here = await resolveHere();
       await navCtrl.start([here, state.goalLngLat]);
 
+      // ★ 開始したら履歴にも確実に入れる
+      addHistory({ name: els.addr?.value || '目的地', lng: state.goalLngLat[0], lat: state.goalLngLat[1] });
+      renderQuickLists();
+
       if (els.btnFollowToggle){
         els.btnFollowToggle.style.display = '';
         if (els.btnStop && els.btnStop.parentNode && els.btnFollowToggle !== els.btnStop.previousSibling) {
@@ -227,13 +323,13 @@ export function bindUI(mapCtrl, navCtrl){
         els.btnFollowToggle.textContent = '進行方向';
       }
       if (els.btnStop) els.btnStop.disabled = false;
-      toast('ナビを開始しました');
+
       closeSearchCard();
+      toast('ナビを開始しました');
     }catch(e){ console.error(e); toast('ナビの開始に失敗しました'); }
   }
 
   function onStop(){
-    log('onStop');
     navCtrl.stop();
     if (els.btnFollowToggle) els.btnFollowToggle.style.display = 'none';
     if (els.btnStop) els.btnStop.disabled = true;
@@ -241,7 +337,6 @@ export function bindUI(mapCtrl, navCtrl){
   }
 
   function onFollowToggle(){
-    log('onFollowToggle');
     const next = !navCtrl.isFollowEnabled();
     navCtrl.setFollowEnabled(next);
     if (els.btnFollowToggle) els.btnFollowToggle.textContent = next ? '進行方向' : '北固定';
@@ -249,31 +344,44 @@ export function bindUI(mapCtrl, navCtrl){
   }
 
   // ---------- Favorite current goal ----------
-  function onFavCurrent(){
-    const goal = state.goalLngLat;
-    if (!goal){ toast('先に目的地を選んでにゃ'); return; }
-    const place = {
-      name: (els.addr?.value || '目的地'),
-      lng: Number(goal[0]),
-      lat: Number(goal[1]),
-    };
-    toggleFavorite(place);
-    toast('お気に入りに登録したにゃ');
+  async function onFavCurrent(){
+    try{
+      // 目的地が未設定でも、入力欄に文字があれば軽くジオコーディングして補完
+      if (!state.goalLngLat){
+        const q = (els.addr?.value || '').trim();
+        if (q){
+          const items = await geocode(q);
+          const it = items[0];
+          if (it){
+            state.goalLngLat = [Number(it.lon ?? it.lng), Number(it.lat)];
+            if (els.addr) els.addr.value = it.display_name || els.addr.value;
+          }
+        }
+      }
+      if (!state.goalLngLat){ toast('先に目的地を選んでにゃ'); return; }
+
+      const place = {
+        name: (els.addr?.value || '目的地'),
+        lng: Number(state.goalLngLat[0]),
+        lat: Number(state.goalLngLat[1]),
+      };
+      toggleFavorite(place);
+      renderQuickLists();
+
+      // メニューを開いておくと変化が見える
+      if (els.appMenu) els.appMenu.open = true;
+
+      toast('お気に入りに登録したにゃ');
+    }catch(e){ console.error(e); toast('お気に入り登録に失敗しました'); }
   }
 
   // ---------- Settings ----------
   function onOpenSettings(){
-    log('onOpenSettings');
     if (!els.settingsCard) return;
-    if (els.setProfile)   els.setProfile.value   = getSetting('profile') || 'driving-car';
-    if (els.setTtsVolume) els.setTtsVolume.value = String(getSetting('ttsVolume') ?? 1);
-    if (els.setTtsRate)   els.setTtsRate.value   = String(getSetting('ttsSpeed')  ?? 1);
-    if (els.setTheme)     els.setTheme.value     = getSetting('theme') || 'auto';
-    syncAvoidUIFromStore();
+    fillSettingsFromStore();
     forceOpen(els.settingsCard);
   }
   function onCloseSettings(){
-    log('onCloseSettings');
     if (!els.settingsCard) return;
     if (els.setAvoidTolls) setSetting('avoidTolls', !!els.setAvoidTolls.checked);
     if (els.setProfile)    setSetting('profile', els.setProfile.value);
@@ -293,14 +401,11 @@ export function bindUI(mapCtrl, navCtrl){
   els.btnFollowToggle  && els.btnFollowToggle.addEventListener('click', (e)=>{ e.preventDefault(); onFollowToggle(); });
   els.btnRecenter      && els.btnRecenter.addEventListener('click', ()=> toast('中心に戻しました'));
 
-  // メニュー内ボタン
-  const btnFavCurrent = document.getElementById('btnFavCurrent');
-  btnFavCurrent && btnFavCurrent.addEventListener('click', (e)=>{ e.preventDefault(); onFavCurrent(); });
-
+  els.btnFavCurrent    && els.btnFavCurrent.addEventListener('click', (e)=>{ e.preventDefault(); onFavCurrent(); });
   els.btnOpenSettings  && els.btnOpenSettings.addEventListener('click', (e)=>{ e.preventDefault(); onOpenSettings(); });
   els.btnSettingsClose && els.btnSettingsClose.addEventListener('click',(e)=>{ e.preventDefault(); onCloseSettings(); });
 
-  // Delegation as a fallback
+  // Delegation fallback
   document.addEventListener('click', (e)=>{
     const q = (sel)=> e.target instanceof Element && e.target.closest(sel);
     if (q('#btnSearch'))         { e.preventDefault(); onSearch();  return; }
@@ -315,89 +420,20 @@ export function bindUI(mapCtrl, navCtrl){
   log('UI handlers ready');
 }
 
-import { StorageKeys, loadList, saveList, trimMax, upsertPlace, makePlaceId } from './settings.js';
-import { HISTORY_MAX, FAVORITES_MAX, MERGE_DISTANCE_M } from '../config.js';
-import { setGoalAndMaybeStart } from './nav.js';
-
-const favListEl = document.getElementById('favorites-list');
-const histListEl = document.getElementById('history-list');
-const histClearBtn = document.getElementById('history-clear');
-
-export function renderQuickLists() {
-  renderList(StorageKeys.FAVORITES, favListEl, true);
-  renderList(StorageKeys.HISTORY, histListEl, false);
-}
-
-function renderList(key, rootEl, isFav) {
-  const items = loadList(key);
-  rootEl.innerHTML = items.map((p, i) => chipHtml(p, i, isFav)).join('');
-  rootEl.querySelectorAll('.act-start').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      const idx = Number(e.currentTarget.dataset.idx);
-      const list = loadList(key);
-      const p = list[idx];
-      setGoalAndMaybeStart(p);
-    });
-  });
-  rootEl.querySelectorAll('.act-fav').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      const idx = Number(e.currentTarget.dataset.idx);
-      const list = loadList(key);
-      const p = list[idx];
-      toggleFavorite(p);
-    });
-  });
-  rootEl.querySelectorAll('.act-del').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      const idx = Number(e.currentTarget.dataset.idx);
-      const list = loadList(key);
-      list.splice(idx, 1);
-      saveList(key, list);
-      renderQuickLists();
-    });
-  });
-}
-
-function chipHtml(p, idx, isFav) {
-  const star = isFavorite(p) ? '★' : '☆';
-  const name = escapeHtml(p.name || '目的地');
-  return `
-    <div class="svn-chip">
-      <div>
-        <div>${name}</div>
-        <div class="meta">${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}</div>
-      </div>
-      <div class="actions">
-        <button class="svn-iconbtn act-start" title="Start" data-idx="${idx}">▶</button>
-        <button class="svn-iconbtn act-fav" title="Favorite" data-idx="${idx}">${star}</button>
-        <button class="svn-iconbtn act-del" title="Delete" data-idx="${idx}">✕</button>
-      </div>
-    </div>
-  `;
-}
-
-function escapeHtml(s) {
-  return s.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+/* ===== Helpers exported for other modules ===== */
+export function isFavorite(place) {
+  const favs = loadList(StorageKeys.FAVORITES);
+  const id = place.id || makePlaceId(place.lat, place.lng);
+  return favs.some(p => (p.id || makePlaceId(p.lat, p.lng)) === id);
 }
 
 export function toggleFavorite(place) {
   const favs = loadList(StorageKeys.FAVORITES);
   const id = place.id || makePlaceId(place.lat, place.lng);
   const idx = favs.findIndex(p => (p.id || makePlaceId(p.lat, p.lng)) === id);
-  if (idx >= 0) {
-    favs.splice(idx, 1);
-  } else {
-    favs.unshift({ ...place, id, addedAt: Date.now() });
-    trimMax(favs, FAVORITES_MAX);
-  }
+  if (idx >= 0) { favs.splice(idx, 1); }
+  else { favs.unshift({ ...place, id, addedAt: Date.now() }); trimMax(favs, FAVORITES_MAX); }
   saveList(StorageKeys.FAVORITES, favs);
-  renderQuickLists();
-}
-
-export function isFavorite(place) {
-  const favs = loadList(StorageKeys.FAVORITES);
-  const id = place.id || makePlaceId(place.lat, place.lng);
-  return favs.some(p => (p.id || makePlaceId(p.lat, p.lng)) === id);
 }
 
 export function addHistory(place) {
@@ -407,15 +443,15 @@ export function addHistory(place) {
   const merged = upsertPlace(hist, withId, MERGE_DISTANCE_M);
   trimMax(merged, HISTORY_MAX);
   saveList(StorageKeys.HISTORY, merged);
-  renderQuickLists();
 }
 
-if (histClearBtn) {
-  histClearBtn.addEventListener('click', () => {
-    saveList(StorageKeys.HISTORY, []);
-    renderQuickLists();
-  });
-}
-
-// initial paint on load
-renderQuickLists();
+/* ===== Initial quick-lists paint on module load as fallback ===== */
+(function initialPaint(){
+  const favListEl = document.getElementById('favorites-list');
+  const histListEl = document.getElementById('history-list');
+  if (!favListEl || !histListEl) return;
+  const favs = loadList(StorageKeys.FAVORITES);
+  const hist = loadList(StorageKeys.HISTORY);
+  favListEl.innerHTML = favs.map((p,i)=>`<div class="svn-chip"><div><div>${p.name||'目的地'}</div><div class="meta">${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}</div></div></div>`).join('');
+  histListEl.innerHTML = hist.map((p,i)=>`<div class="svn-chip"><div><div>${p.name||'目的地'}</div><div class="meta">${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}</div></div></div>`).join('');
+})();
