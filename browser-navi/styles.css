@@ -2,7 +2,7 @@
   --container:1100px;
   --ink:#0f172a; --muted:#64748b; --brand:#1b6ef3;
   --bg:#f8fafc; --card:#fff; --border:#e2e8f0; --shadow:0 10px 30px rgba(15,23,42,.08);
-  --map-top:180px;     /* header+toolbar 分（toolbarが高いほど伸びる） */
+  --map-top:180px;     /* header+toolbar 分 */
   --map-bottom:140px;  /* HUD 分 */
 }
 *{box-sizing:border-box}
@@ -10,48 +10,40 @@ html,body{margin:0;padding:0;height:100%}
 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"Noto Sans JP",sans-serif;color:var(--ink);background:var(--bg)}
 a{color:#1b6ef3;text-decoration:none} a:hover{text-decoration:underline}
 
-/* ===== ダークテーマ：両方の流儀に対応（body.class と data-theme） ===== */
-body.theme-dark,
-html[data-theme="dark"],
-:root[data-theme="dark"]{
+/* ===== Theme (class と data-theme の両対応) ===== */
+body.theme-dark, html[data-theme="dark"], :root[data-theme="dark"]{
   --ink:#e5e7eb; --muted:#94a3b8; --brand:#60a5fa;
   --bg:#0b1220; --card:#0f172a; --border:#1f2937; --shadow:0 10px 30px rgba(0,0,0,.35);
 }
-
-/* 任意：明示的ライト指定にも対応 */
-body.theme-light,
-html[data-theme="light"],
-:root[data-theme="light"]{
+body.theme-light, html[data-theme="light"], :root[data-theme="light"]{
   --ink:#0f172a; --muted:#64748b; --brand:#1b6ef3;
   --bg:#f8fafc; --card:#fff; --border:#e2e8f0; --shadow:0 10px 30px rgba(15,23,42,.08);
 }
 
+/* Header */
 .header{position:sticky;top:0;z-index:50;background:var(--card);border-bottom:1px solid var(--border)}
 .header-inner{max-width:var(--container);margin:0 auto;height:56px;display:flex;align-items:center;justify-content:space-between;padding:0 16px}
 .brand{font-weight:700}
 .nav a{margin-left:16px;color:var(--ink)}
 
-/* 前面に出す（地図より上） */
+/* Toolbar（地図より前面） */
 .toolbar{
   position:relative; z-index:60;
   max-width:var(--container);margin:0 auto;padding:10px 16px;
   display:flex;gap:8px;align-items:center;flex-wrap:wrap;transition:all .25s ease;
 }
 .toolbar input[type="text"]{flex:1;min-width:220px;padding:10px;border:1px solid var(--border);border-radius:10px;background:var(--card);color:var(--ink)}
-.btn{display:inline-block;padding:10px 14px;border-radius:999px;border:1px solid var(--border);background:var(--card);color:var(--ink);font-weight:600}
+.btn{display:inline-block;padding:10px 14px;border-radius:999px;border:1px solid var(--border);background:var(--card);color:var(--ink);font-weight:600;cursor:pointer}
 .btn.primary{background:#1b6ef3;border-color:transparent;color:#fff}
-.btn:disabled{opacity:.5;pointer-events:none}
+.btn:disabled{opacity:.65;cursor:default}
+.btn.primary:disabled{background:#9ca3af;border-color:transparent;color:#fff}
 
-/* map は header と toolbar の下に敷く（背面に回す） */
-#map{
-  position:fixed;inset:var(--map-top) 0 var(--map-bottom) 0; z-index:1;
-}
+/* Map（背面） */
+#map{position:fixed;inset:var(--map-top) 0 var(--map-bottom) 0; z-index:1}
 
 /* HUD */
 .hud{position:fixed;left:0;right:0;bottom:0;background:rgba(255,255,255,.96);border-top:1px solid var(--border)}
-body.theme-dark .hud,
-html[data-theme="dark"] .hud,
-:root[data-theme="dark"] .hud{background:rgba(15,23,42,.96)}
+body.theme-dark .hud, html[data-theme="dark"] .hud, :root[data-theme="dark"] .hud{background:rgba(15,23,42,.96)}
 .hud-inner{max-width:var(--container);margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px}
 .stat{display:flex;gap:6px;align-items:baseline}.stat b{font-size:20px}
 
@@ -65,24 +57,36 @@ html[data-theme="dark"] .hud,
 .card.settings .row{margin:10px 0}
 .card .actions{margin-top:8px;text-align:right}
 
-/* ===== ナビ開始時：ツールバーごと消す（= お気に入り/履歴も一緒に隠れる） ===== */
-body.navigating { --map-top:66px; }
-body.navigating .toolbar { display:none; }
-body.navigating .nav { display:none; }
+/* ===== ナビ開始の自動判定（Stop が enabled のとき） ===== */
+/* Stop が有効化されたらツールバーまるごと隠す＆地図を上詰め */
+html:has(#btnStop:not([disabled])){ --map-top:66px; }
+html:has(#btnStop:not([disabled])) .toolbar{ display:none; }
+html:has(#btnStop:not([disabled])) .nav{ display:none; }
 
-/* 右上：停止＆追従（ナビ中のみ固定表示） */
-#btnStop{position:fixed; top:10px; right:12px; z-index:60; display:none; background:#ef4444; color:#fff; border-color:transparent;}
-body.navigating #btnStop{display:inline-block;}
-body:not(.navigating) #btnStop{position:static; display:inline-block; background:var(--card); color:var(--ink); border:1px solid var(--border);}
-#btnFollowToggle{position:fixed; top:10px; right:112px; z-index:60; display:none; background:var(--card); color:var(--ink); border:1px solid var(--border);}
-body.navigating #btnFollowToggle{display:inline-block;}
-body:not(.navigating) #btnFollowToggle{display:none;}
-
+/* ボタン配置：ナビ中は右上に固定（既存仕様） */
+#btnStop{position:fixed; top:10px; right:12px; z-index:70; display:none; background:#ef4444; color:#fff; border-color:transparent;}
+#btnFollowToggle{position:fixed; top:10px; right:112px; z-index:70; display:none; background:var(--card); color:var(--ink); border:1px solid var(--border);}
+html:has(#btnStop:not([disabled])) #btnStop{display:inline-block;}
+html:has(#btnStop:not([disabled])) #btnFollowToggle{display:inline-block;}
 @media (max-width:680px){
   :root{ --map-top:206px; --map-bottom:160px; }
-  body.navigating{ --map-top:66px; }
+  html:has(#btnStop:not([disabled])){ --map-top:66px; }
   .hud-inner{flex-wrap:wrap}
   #btnFollowToggle{ right:108px; }
+}
+
+/* Stop が押せるようになったらアテンション */
+#btnStop:not([disabled]){ animation:pulseStop 1.6s ease-in-out infinite; }
+@keyframes pulseStop{
+  0%{ box-shadow:0 0 0 0 rgba(239,68,68,.5); }
+  70%{ box-shadow:0 0 0 12px rgba(239,68,68,0); }
+  100%{ box-shadow:0 0 0 0 rgba(239,68,68,0); }
+}
+/* 吹き出しヒント */
+#btnStop:not([disabled])::after{
+  content:"停止はこちら";
+  position:absolute; right:0; top:100%; margin-top:6px;
+  background:rgba(239,68,68,.95); color:#fff; padding:4px 8px; border-radius:8px; font-size:12px; white-space:nowrap;
 }
 
 /* 進行アイコン＆レーン風カード */
@@ -105,7 +109,7 @@ body.follow-paused .fab{display:inline-block}
 .sr-item:last-child { border-bottom:0; }
 .sr-empty,.sr-loading,.sr-error { padding:10px 12px; color:#666; }
 
-/* ===== お気に入り／履歴（ツールバー直下） ===== */
+/* ===== お気に入り／履歴（ツールバー内） ===== */
 #quick-lists{
   width:100%;
   border:1px solid var(--border);
@@ -127,7 +131,7 @@ body.follow-paused .fab{display:inline-block}
 #quick-lists .ql-row{ display:flex; align-items:center; gap:8px; margin-bottom:6px; }
 #history-clear{ margin-left:auto; }
 
-/* リストの中身（既存定義を再利用） */
+/* リストの中身 */
 .svn-quick-lists { padding: 0; }
 .svn-list-block { margin-bottom: 8px; }
 .svn-chip-list { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 6px; }
@@ -140,11 +144,7 @@ body.follow-paused .fab{display:inline-block}
 .svn-chip .actions { display: flex; gap: 6px; }
 .svn-iconbtn { border: none; background: transparent; cursor: pointer; font-size: 16px; line-height: 1; }
 .svn-linklike { border: none; background: transparent; color: var(--brand); cursor: pointer; }
-
-/* 既存の data-theme="dark" スタイルとも整合 */
 :root[data-theme="dark"] .svn-chip { border-color: #444; background: #1b1b1b; }
 
 /* 狭小画面では1列に */
-@media (max-width:480px){
-  .svn-chip-list{ grid-template-columns: 1fr; }
-}
+@media (max-width:480px){ .svn-chip-list{ grid-template-columns: 1fr; } }
