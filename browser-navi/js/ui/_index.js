@@ -45,7 +45,9 @@ export function bindUI(mapCtrl, navCtrl){
 
   // Start/Stop：navCtrl からの進捗は hooks.onTick 経由で HUD に流す
   const routeApi = setupStartStop(els, navCtrl, {
-    onGoalFixed: (place) => { addHistory(place); renderQuickLists(); },
+    // ★ 重複回避：ここでは履歴に入れない
+    onGoalFixed: (place) => { /* no-op: renderQuickLists(); ←必要ならUIだけ更新 */ },
+    // ★ 履歴は開始確定時だけ追加
     onStarted:   (place) => { addHistory(place); renderQuickLists(); },
     onTick:      (snap)  => { hudSink(snap); }
   });
