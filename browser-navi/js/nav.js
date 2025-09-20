@@ -15,6 +15,7 @@ function toast(msg, ms = 3000) {
   } catch {}
 }
 
+// ---- Icons ----
 const ICONS = {
   'turn-left': 'i-turn-left',
   'turn-right': 'i-turn-right',
@@ -33,6 +34,7 @@ const ICONS = {
   'ramp-right': 'i-ramp-right'
 };
 
+// ---- Distance helpers (meters) ----
 function haversine(lat1, lon1, lat2, lon2) {
   const R = 6371000;
   const toRad = d => d * Math.PI / 180;
@@ -44,9 +46,10 @@ function haversine(lat1, lon1, lat2, lon2) {
 }
 const llToObj = ([lng, lat]) => ({ lng: Number(lng), lat: Number(lat) });
 
+// ---- Generic pickers for ORS/OSRM ----
 function pickIcon(step) {
-  const t = step?.maneuver?.type || '';
-  const m = (step?.maneuver?.modifier || '').toLowerCase();
+  const t = (step?.maneuver?.type || step?.type || '').toLowerCase();
+  const m = (step?.maneuver?.modifier || step?.modifier || '').toLowerCase();
   if (t === 'turn') return ICONS[`turn-${m}`] || ICONS.straight;
   if (t === 'roundabout' || t === 'rotary') return ICONS.roundabout;
   if (t === 'merge') return ICONS.merge;
@@ -55,6 +58,64 @@ function pickIcon(step) {
   if (t === 'continue') return ICONS.continue;
   if (t === 'uturn') return ICONS.uturn;
   return ICONS.straight;
+}
+
+// totals: ORS(summary) → OSRM(route.distance/duration) → sum legs
+function extractTotals(data) {
+  const route0 = data?.routes?.[0];
+  if (!route0) return { distanceM: NaN, durationS: NaN };
+
+  // ORS style
+  if (route0.summary && Number.isFinite(route0.summary.distance) && Number.isFinite(route0.summary.duration)) {
+    return { distanceM: Number(route0.summary.distance), durationS: Number(route0.summary.duration) };
+  }
+  // OSRM style (top-level on route)
+  if (Number.isFinite(route0.distance) && Number.isFinite(route0.duration)) {
+    return { distanceM: Number(route0.distance), durationS: Number(route0.duration) };
+  }
+  // Sum over legs (both engines can have legs)
+  if (Array.isArray(route0.legs) && route0.legs.length) {
+    let d = 0, s = 0;
+    for (const leg of route0.legs) {
+      if (Number.isFinite(leg.distance)) d += leg.distance;
+      if (Number.isFinite(leg.duration)) s += leg.duration;
+    }
+    if (d > 0 && s > 0) return { distanceM: d, durationS: s };
+  }
+  return { distanceM: NaN, durationS: NaN };
+}
+
+// steps: ORS(segments[0].steps) or OSRM(legs[0].steps)
+function extractSteps(data) {
+  const route0 = data?.routes?.[0];
+  // ORS
+  const orsSteps = route0?.segments?.[0]?.steps;
+  if (Array.isArray(orsSteps) && orsSteps.length) return orsSteps;
+  // OSRM
+  const osrmSteps = route0?.legs?.[0]?.steps;
+  if (Array.isArray(osrmSteps) && osrmSteps.length) return osrmSteps;
+  // Fallback
+  return Array.isArray(data?.steps) ? data.steps : [];
+}
+
+// center point for a step: ORS(way_points_center or way_points[0]) / OSRM(maneuver.location)
+function pickStepCenter(step) {
+  if (!step) return null;
+  // ORS
+  if (Array.isArray(step.way_points_center)) {
+    const o = llToObj(step.way_points_center);
+    return { lat: o.lat, lng: o.lng };
+  }
+  if (Array.isArray(step.way_points)) {
+    const o = llToObj(step.way_points[0]);
+    return { lat: o.lat, lng: o.lng };
+  }
+  // OSRM
+  if (step.maneuver && Array.isArray(step.maneuver.location)) {
+    const o = llToObj(step.maneuver.location);
+    return { lat: o.lat, lng: o.lng };
+  }
+  return null;
 }
 
 export class NavigationController {
@@ -117,16 +178,16 @@ export class NavigationController {
       this.currentRoute = data;
       drawRoute(data);
 
-      // ORS summary
-      const sum = data?.routes?.[0]?.summary || data?.summary || null;
-      this._totalDistanceM = Number(sum?.distance ?? NaN);
-      this._totalDurationS = Number(sum?.duration ?? NaN);
+      // robust totals
+      const { distanceM, durationS } = extractTotals(data);
+      this._totalDistanceM = Number(distanceM);
+      this._totalDurationS = Number(durationS);
       this._lastRemainM = Number.isFinite(this._totalDistanceM) ? this._totalDistanceM : NaN;
 
       this.setFollowEnabled(true);
       this.lastStepIdx = -1;
 
-      // emit first snapshot immediately (updates HUD even before GPS callback)
+      // emit first snapshot immediately
       this._emitProgress(this._mkSnap('案内中'));
 
       // start GPS
@@ -154,7 +215,7 @@ export class NavigationController {
     this._emitProgress({ distanceLeftMeters: NaN, eta: null, status: '待機中' });
   }
 
-  // Provide polling compatibility (unused when using events)
+  // For compatibility (not used when events subscribed)
   getProgress() { return this._mkSnap('案内中'); }
 
   _mkSnap(statusText) {
@@ -177,19 +238,21 @@ export class NavigationController {
   }
 
   _getSteps() {
-    if (this.currentRoute?.routes?.[0]?.segments?.[0]?.steps) return this.currentRoute.routes[0].segments[0].steps;
-    if (this.currentRoute?.steps) return this.currentRoute.steps;
-    return [];
+    return extractSteps(this.currentRoute);
   }
 
   _updateInstructions([lng, lat]) {
     const steps = this._getSteps();
-    if (!steps.length) return;
+    if (!steps.length) {
+      // ルートはあるが steps が無いケースでも総距離から ETA を出し続ける
+      this._emitProgress(this._mkSnap('案内中'));
+      return;
+    }
 
     const idx = this._findNextStep(steps, [lng, lat]);
     const remainAfterIdx = steps.slice(Math.max(idx, 0)).reduce((acc, s) => acc + Number(s.distance || 0), 0);
 
-    const pivot = this._pickStepCenter(steps[idx]);
+    const pivot = pickStepCenter(steps[idx]);
     let toPivotM = 0;
     if (pivot) toPivotM = haversine(lat, lng, pivot.lat, pivot.lng);
 
@@ -207,21 +270,10 @@ export class NavigationController {
     }
   }
 
-  _pickStepCenter(step) {
-    const wp = Array.isArray(step?.way_points_center)
-      ? step.way_points_center
-      : Array.isArray(step?.way_points)
-        ? step.way_points[0]
-        : null;
-    if (!wp) return null;
-    const o = llToObj(wp);
-    return { lat: o.lat, lng: o.lng };
-  }
-
   _findNextStep(steps, [lng, lat]) {
     let minDist = Infinity, minIdx = 0;
     for (let i = 0; i < steps.length; i++) {
-      const cen = this._pickStepCenter(steps[i]);
+      const cen = pickStepCenter(steps[i]);
       if (!cen) continue;
       const d = haversine(lat, lng, cen.lat, cen.lng);
       if (d < minDist) { minDist = d; minIdx = i; }
@@ -231,7 +283,7 @@ export class NavigationController {
 
   _speak(step) {
     try {
-      const msg = new SpeechSynthesisUtterance(step.instruction || 'Proceed');
+      const msg = new SpeechSynthesisUtterance(step.instruction || step.name || 'Proceed');
       msg.rate = getSetting('ttsSpeed') || 1;
       msg.volume = getSetting('ttsVolume') || 1;
       speechSynthesis.speak(msg);
@@ -245,7 +297,7 @@ export class NavigationController {
     el.innerHTML = `
       <div class="progress-row">
         <span class="nav-icon ${iconKey}"></span>
-        <span class="nav-text">${step.instruction || ''}</span>
+        <span class="nav-text">${step.instruction || step.name || ''}</span>
       </div>
       <div class="nav-sub">Remain ${Math.round(step.distance || 0)} m</div>
     `;
