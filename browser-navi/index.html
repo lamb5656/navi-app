@@ -23,7 +23,7 @@
     </div>
   </header>
 
-  <!-- ツールバー：この中に“#quick-lists”を内包（開始時に一緒に隠れる） -->
+  <!-- ツールバー：この中に“#quick-lists”を内包。開始時に一緒に隠れる -->
   <div class="toolbar">
     <input id="addr" type="text" placeholder="目的地を検索（例：名古屋駅）">
     <button id="btnSearch" class="btn">検索</button>
@@ -34,9 +34,12 @@
     <button id="btnFollowToggle" class="btn" type="button">進行方向</button>
     <button id="btnStop" class="btn" disabled>停止</button>
 
-    <!-- ▼ お気に入り／履歴（ツールバー直下・同一DOM内） -->
+    <!-- ▼ お気に入り／履歴（ツールバー直下） -->
     <details id="quick-lists" open aria-label="お気に入りと履歴リスト">
-      <summary><span aria-hidden="true">📍</span> お気に入り・履歴 <span style="margin-left:auto; font-size:12px; opacity:.7;">タップで開閉</span></summary>
+      <summary>
+        <span aria-hidden="true">📍</span> お気に入り・履歴
+        <span style="margin-left:auto; font-size:12px; opacity:.7;">タップで開閉</span>
+      </summary>
       <div class="ql-body svn-quick-lists">
         <div class="svn-list-block">
           <h3>お気に入り</h3>

@@ -10,26 +10,48 @@ html,body{margin:0;padding:0;height:100%}
 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"Noto Sans JP",sans-serif;color:var(--ink);background:var(--bg)}
 a{color:#1b6ef3;text-decoration:none} a:hover{text-decoration:underline}
 
-/* ダークテーマ */
-body.theme-dark{ --ink:#e5e7eb; --muted:#94a3b8; --brand:#60a5fa; --bg:#0b1220; --card:#0f172a; --border:#1f2937; --shadow:0 10px 30px rgba(0,0,0,.35); }
+/* ===== ダークテーマ：両方の流儀に対応（body.class と data-theme） ===== */
+body.theme-dark,
+html[data-theme="dark"],
+:root[data-theme="dark"]{
+  --ink:#e5e7eb; --muted:#94a3b8; --brand:#60a5fa;
+  --bg:#0b1220; --card:#0f172a; --border:#1f2937; --shadow:0 10px 30px rgba(0,0,0,.35);
+}
+
+/* 任意：明示的ライト指定にも対応 */
+body.theme-light,
+html[data-theme="light"],
+:root[data-theme="light"]{
+  --ink:#0f172a; --muted:#64748b; --brand:#1b6ef3;
+  --bg:#f8fafc; --card:#fff; --border:#e2e8f0; --shadow:0 10px 30px rgba(15,23,42,.08);
+}
 
 .header{position:sticky;top:0;z-index:50;background:var(--card);border-bottom:1px solid var(--border)}
 .header-inner{max-width:var(--container);margin:0 auto;height:56px;display:flex;align-items:center;justify-content:space-between;padding:0 16px}
 .brand{font-weight:700}
 .nav a{margin-left:16px;color:var(--ink)}
 
-.toolbar{max-width:var(--container);margin:0 auto;padding:10px 16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;transition:all .25s ease}
+/* 前面に出す（地図より上） */
+.toolbar{
+  position:relative; z-index:60;
+  max-width:var(--container);margin:0 auto;padding:10px 16px;
+  display:flex;gap:8px;align-items:center;flex-wrap:wrap;transition:all .25s ease;
+}
 .toolbar input[type="text"]{flex:1;min-width:220px;padding:10px;border:1px solid var(--border);border-radius:10px;background:var(--card);color:var(--ink)}
 .btn{display:inline-block;padding:10px 14px;border-radius:999px;border:1px solid var(--border);background:var(--card);color:var(--ink);font-weight:600}
 .btn.primary{background:#1b6ef3;border-color:transparent;color:#fff}
 .btn:disabled{opacity:.5;pointer-events:none}
 
-/* map は header と toolbar の下に敷く */
-#map{position:fixed;inset:var(--map-top) 0 var(--map-bottom) 0}
+/* map は header と toolbar の下に敷く（背面に回す） */
+#map{
+  position:fixed;inset:var(--map-top) 0 var(--map-bottom) 0; z-index:1;
+}
 
 /* HUD */
 .hud{position:fixed;left:0;right:0;bottom:0;background:rgba(255,255,255,.96);border-top:1px solid var(--border)}
-body.theme-dark .hud{background:rgba(15,23,42,.96)}
+body.theme-dark .hud,
+html[data-theme="dark"] .hud,
+:root[data-theme="dark"] .hud{background:rgba(15,23,42,.96)}
 .hud-inner{max-width:var(--container);margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px}
 .stat{display:flex;gap:6px;align-items:baseline}.stat b{font-size:20px}
 
@@ -43,9 +65,9 @@ body.theme-dark .hud{background:rgba(15,23,42,.96)}
 .card.settings .row{margin:10px 0}
 .card .actions{margin-top:8px;text-align:right}
 
-/* ナビ中のコンパクト表示：toolbar をまるごと畳む */
+/* ===== ナビ開始時：ツールバーごと消す（= お気に入り/履歴も一緒に隠れる） ===== */
 body.navigating { --map-top:66px; }
-body.navigating .toolbar { height:0; padding:0; overflow:hidden; border:0; }
+body.navigating .toolbar { display:none; }
 body.navigating .nav { display:none; }
 
 /* 右上：停止＆追従（ナビ中のみ固定表示） */
@@ -55,7 +77,13 @@ body:not(.navigating) #btnStop{position:static; display:inline-block; background
 #btnFollowToggle{position:fixed; top:10px; right:112px; z-index:60; display:none; background:var(--card); color:var(--ink); border:1px solid var(--border);}
 body.navigating #btnFollowToggle{display:inline-block;}
 body:not(.navigating) #btnFollowToggle{display:none;}
-@media (max-width:680px){ :root{ --map-top:206px; --map-bottom:160px; } body.navigating{ --map-top:66px; } .hud-inner{flex-wrap:wrap} #btnFollowToggle{ right:108px; } }
+
+@media (max-width:680px){
+  :root{ --map-top:206px; --map-bottom:160px; }
+  body.navigating{ --map-top:66px; }
+  .hud-inner{flex-wrap:wrap}
+  #btnFollowToggle{ right:108px; }
+}
 
 /* 進行アイコン＆レーン風カード */
 .maneuver{position:fixed; left:50%; transform:translateX(-50%); top:66px; display:none; align-items:center; gap:12px; background:var(--card); color:var(--ink); border:1px solid var(--border); border-radius:14px; box-shadow:var(--shadow); padding:8px 14px; z-index:80}
@@ -112,6 +140,8 @@ body.follow-paused .fab{display:inline-block}
 .svn-chip .actions { display: flex; gap: 6px; }
 .svn-iconbtn { border: none; background: transparent; cursor: pointer; font-size: 16px; line-height: 1; }
 .svn-linklike { border: none; background: transparent; color: var(--brand); cursor: pointer; }
+
+/* 既存の data-theme="dark" スタイルとも整合 */
 :root[data-theme="dark"] .svn-chip { border-color: #444; background: #1b1b1b; }
 
 /* 狭小画面では1列に */
