@@ -4,6 +4,41 @@ import { withBackoff } from '../libs/net.js';
 import { toggleFavorite } from './favorites.js';
 import { renderQuickLists } from './favorites.js';
 
+// Format "display_name" from Nominatim-like strings into Japanese order.
+// Example: "名古屋駅, 名駅通, 名駅一丁目, 中村区, 名古屋市, 愛知県, 450-6013, 日本"
+// -> "愛知県名古屋市中村区名駅一丁目 名古屋駅"
+function formatAddressJa(raw) {
+  if (!raw) return '';
+  const parts = String(raw).split(',').map(s => s.trim()).filter(Boolean);
+
+  // remove trailing "日本" and postal code like 123-4567
+  const cleaned = parts.filter(s => s !== '日本' && !/^\d{3}-\d{4}$/.test(s));
+
+  // heuristics
+  const hasSuffix = (suf) => (s) => s.endsWith(suf);
+  const pref   = cleaned.find(s => /(都|道|府|県)$/.test(s)); // 東京都, 北海道, 大阪府, 京都府, ～県
+  const city   = cleaned.find(hasSuffix('市'));
+  const ward   = cleaned.find(hasSuffix('区'));
+  const town   = cleaned.find(s => /(丁目|町|村)$/.test(s));
+
+  // POI (landmark) is often the first item
+  const poi = cleaned[0];
+
+  // Build core without duplicates
+  const uniq = [];
+  for (const v of [pref, city, ward, town]) {
+    if (v && !uniq.includes(v)) uniq.push(v);
+  }
+  const core = uniq.join('');
+
+  // If nothing matched, just fallback to joined string
+  if (!core && poi) return poi;
+
+  // Append POI at the end with a space
+  if (poi && !uniq.includes(poi)) return `${core} ${poi}`;
+  return core || cleaned.join(' ');
+}
+
 export function setupSearch(els, mapCtrl){
   const state = { goalLngLat: null };
 
@@ -14,7 +49,12 @@ export function setupSearch(els, mapCtrl){
     if (Array.isArray(data?.features)) {
       return data.features.map(f=>{
         const c = f?.geometry?.coordinates;
-        return c && { lon: Number(c[0]), lat: Number(c[1]), display_name: f?.properties?.display_name || f?.properties?.name || '' };
+        const props = f?.properties || {};
+        return c && {
+          lon: Number(c[0]),
+          lat: Number(c[1]),
+          display_name: props.display_name || props.name || ''
+        };
       }).filter(Boolean);
     }
     if (Array.isArray(data?.items)) return data.items;
@@ -43,7 +83,8 @@ export function setupSearch(els, mapCtrl){
     }
 
     for (const it of items){
-      const name = it.display_name || it.name || it.label || '名称未設定';
+      const rawName = it.display_name || it.name || it.label || '';
+      const nameJa  = formatAddressJa(rawName) || '名称未設定';
       const lng  = Number(it.lon ?? it.lng ?? it.longitude ?? it.center?.[0]);
       const lat  = Number(it.lat ?? it.latitude ?? it.center?.[1]);
       if (!Number.isFinite(lng) || !Number.isFinite(lat)) continue;
@@ -51,8 +92,8 @@ export function setupSearch(els, mapCtrl){
       const btn  = document.createElement('button');
       btn.type = 'button';
       btn.className = 'sr-item';
-      btn.textContent = name;
-      btn.dataset.name = name;
+      btn.textContent = nameJa;
+      btn.dataset.name = nameJa;
       btn.dataset.lng = String(lng);
       btn.dataset.lat = String(lat);
 
@@ -61,7 +102,7 @@ export function setupSearch(els, mapCtrl){
         if (handled) return; handled = true;
         e.preventDefault(); e.stopPropagation();
         state.goalLngLat = [lng, lat];
-        if (els.addr) { els.addr.value = name; try{ els.addr.blur(); }catch{} }
+        if (els.addr) { els.addr.value = nameJa; try{ els.addr.blur(); }catch{} }
         try {
           if (mapCtrl?.map) mapCtrl.map.easeTo({ center: state.goalLngLat, zoom: Math.max(mapCtrl.map.getZoom(), 14), duration: 400 });
         } catch {}
@@ -70,7 +111,6 @@ export function setupSearch(els, mapCtrl){
       };
 
       btn.addEventListener('pointerdown', onPick, { passive: false });
-      // intentionally no 'click' to avoid double-tap issues on iOS
       els.searchList.appendChild(btn);
     }
     openSearch();
@@ -98,14 +138,18 @@ export function setupSearch(els, mapCtrl){
     const it = items[0];
     if (!it) return null;
     state.goalLngLat = [Number(it.lon ?? it.lng), Number(it.lat)];
-    if (els.addr) els.addr.value = it.display_name || els.addr.value;
+    if (els.addr) {
+      const raw = it.display_name || els.addr.value;
+      els.addr.value = formatAddressJa(raw) || raw;
+    }
     return state.goalLngLat;
   }
 
   async function onFavCurrent(){
     const goal = state.goalLngLat || await ensureGoalFromInput();
     if (!goal){ toast('先に目的地を選んでにゃ'); return; }
-    toggleFavorite({ name: (els.addr?.value || '目的地'), lng: Number(goal[0]), lat: Number(goal[1]) });
+    const name = (els.addr?.value || '目的地').trim();
+    toggleFavorite({ name, lng: Number(goal[0]), lat: Number(goal[1]) });
     renderQuickLists();
     if (els.appMenu) els.appMenu.open = true;
     toast('お気に入りに登録したにゃ');
