@@ -24,23 +24,45 @@ body.theme-light, html[data-theme="light"], :root[data-theme="light"]{
 .header{position:sticky;top:0;z-index:50;background:var(--card);border-bottom:1px solid var(--border)}
 .header-inner{max-width:var(--container);margin:0 auto;height:56px;display:flex;align-items:center;justify-content:space-between;padding:0 16px}
 .brand{font-weight:700}
-.nav{display:flex;align-items:center;gap:12px}
+.nav{position:relative;display:flex;align-items:center;gap:12px}
 .nav a{color:var(--ink)}
 
-/* 停止ボタンはヘッダー内に配置 */
+/* 停止ボタンはヘッダー内に常設（開始後のみ表示） */
 .btn{display:inline-block;padding:10px 14px;border-radius:999px;border:1px solid var(--border);background:var(--card);color:var(--ink);font-weight:600;cursor:pointer}
 .btn.primary{background:#1b6ef3;border-color:transparent;color:#fff}
 .btn:disabled{opacity:.65;cursor:default}
 .btn.primary:disabled{background:#9ca3af;border-color:transparent;color:#fff}
 
 #btnStop{background:#ef4444;border-color:transparent;color:#fff;}
-#btnStop[disabled]{display:none;}        /* 無効時は非表示（開始前は見えない） */
+#btnStop[disabled]{display:none;}
 #btnStop:not([disabled]){display:inline-block; animation:pulseStop 1.6s ease-in-out infinite;}
 @keyframes pulseStop{
   0%{ box-shadow:0 0 0 0 rgba(239,68,68,.5); }
   70%{ box-shadow:0 0 0 12px rgba(239,68,68,0); }
   100%{ box-shadow:0 0 0 0 rgba(239,68,68,0); }
 }
+
+/* ハンバーガーメニュー（details/summary） */
+#appMenu{position:relative; z-index:60;}
+#appMenu > summary{
+  list-style:none; cursor:pointer; user-select:none;
+  width:42px; height:42px; display:grid; place-items:center;
+  border:1px solid var(--border); border-radius:10px; background:var(--card); color:var(--ink);
+}
+#appMenu > summary::-webkit-details-marker{ display:none; }
+#appMenu[open] > summary{outline:2px solid rgba(0,0,0,.06);}
+
+.menu-panel{
+  position:absolute; right:0; top:calc(100% + 8px);
+  width:min(92vw, 380px);
+  max-height:70vh; overflow:auto;
+  border:1px solid var(--border); border-radius:12px; background:var(--card); box-shadow:var(--shadow);
+}
+.menu-section{padding:10px 12px; border-bottom:1px solid var(--border);}
+.menu-section:last-child{border-bottom:0;}
+.menu-title{margin:0 0 8px 0; font-weight:700; font-size:14px;}
+.menu-actions{display:flex; gap:8px; align-items:center; flex-wrap:wrap;}
+.menu-actions .btn{border-radius:10px}
 
 /* Toolbar（地図より前面） */
 .toolbar{
@@ -74,50 +96,13 @@ body.theme-dark .hud, html[data-theme="dark"] .hud, :root[data-theme="dark"] .hu
 html:has(#btnStop:not([disabled])){ --map-top:66px; }
 html:has(#btnStop:not([disabled])) .toolbar{ display:none; }
 
-/* 進行アイコン＆レーン風カード */
-.maneuver{position:fixed; left:50%; transform:translateX(-50%); top:66px; display:none; align-items:center; gap:12px; background:var(--card); color:var(--ink); border:1px solid var(--border); border-radius:14px; box-shadow:var(--shadow); padding:8px 14px; z-index:80}
-.maneuver .icon{font-size:34px; line-height:1}
-.maneuver .lane{display:flex; gap:6px}
-.maneuver .lane-mark{width:18px; height:18px; border:2px solid var(--border); border-radius:4px; opacity:.55}
-.maneuver .lane-mark.active{background:#1b6ef3; border-color:#1b6ef3; opacity:1}
-.maneuver .text{display:flex; flex-direction:column}
-.maneuver .dist b{font-size:18px}
-.maneuver .sub{font-size:14px; color:var(--muted)}
-
-/* 再中心（手動パン時のみ表示） */
-.fab{position:fixed; right:12px; bottom:calc(var(--map-bottom) + 12px); z-index:60; border-radius:999px; padding:12px 14px; background:var(--card); border:1px solid var(--border); box-shadow:var(--shadow); display:none}
-body.follow-paused .fab{display:inline-block}
-
 /* 検索候補 */
 .search-results { margin-top: 8px; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; background: #fff; }
 .sr-item { display:block; width:100%; text-align:left; padding:10px 12px; border:0; border-bottom:1px solid #eee; background:transparent; cursor:pointer; }
 .sr-item:last-child { border-bottom:0; }
 .sr-empty,.sr-loading,.sr-error { padding:10px 12px; color:#666; }
 
-/* ===== お気に入り／履歴（ツールバー内） ===== */
-#quick-lists{
-  width:100%;
-  border:1px solid var(--border);
-  border-radius:12px;
-  background:var(--card);
-  box-shadow:var(--shadow);
-  overflow:hidden;
-  margin-top:8px; /* 入力欄のすぐ下 */
-}
-#quick-lists > summary{
-  list-style:none; cursor:pointer;
-  display:flex; align-items:center; gap:8px;
-  padding:10px 12px; font-weight:700;
-  border-bottom:1px solid var(--border); user-select:none;
-}
-#quick-lists > summary::-webkit-details-marker{ display:none; }
-#quick-lists .ql-body{ padding:10px 12px; }
-#quick-lists h3{ margin:0 0 6px 0; font-size:14px; display:flex; align-items:center; gap:8px; }
-#quick-lists .ql-row{ display:flex; align-items:center; gap:8px; margin-bottom:6px; }
-#history-clear{ margin-left:auto; }
-
-/* リストの中身 */
-.svn-quick-lists { padding: 0; }
+/* ===== お気に入り／履歴（メニュー内で使用） ===== */
 .svn-list-block { margin-bottom: 8px; }
 .svn-chip-list { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 6px; }
 .svn-chip {
@@ -131,12 +116,7 @@ body.follow-paused .fab{display:inline-block}
 .svn-linklike { border: none; background: transparent; color: var(--brand); cursor: pointer; }
 :root[data-theme="dark"] .svn-chip { border-color: #444; background: #1b1b1b; }
 
-/* 狭小画面では1列に */
-@media (max-width:680px){
-  :root{ --map-top:206px; --map-bottom:160px; }
-  html:has(#btnStop:not([disabled])){ --map-top:66px; }
-  .hud-inner{flex-wrap:wrap}
-}
+/* 狭小画面で1列 */
 @media (max-width:480px){
   .svn-chip-list{ grid-template-columns: 1fr; }
 }

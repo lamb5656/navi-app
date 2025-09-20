@@ -17,45 +17,48 @@
     <div class="header-inner">
       <div class="brand">SwitchVoiceNavi</div>
       <nav class="nav">
-        <a href="howto.html" rel="noopener noreferrer">設定方法</a>
-        <a href="#" id="btnOpenSettings">設定</a>
-        <!-- 停止はヘッダー右上に常設。開始前は disabled で非表示、開始後に有効化されて表示 -->
+        <!-- ハンバーガーメニュー -->
+        <details id="appMenu">
+          <summary aria-label="メニュー" title="メニュー">
+            <!-- 3本線 -->
+            <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M3 6h18M3 12h18M3 18h18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </summary>
+          <div class="menu-panel" role="menu" aria-label="メニュー">
+            <section class="menu-section">
+              <h3 class="menu-title">メニュー</h3>
+              <div class="menu-actions">
+                <button id="btnOpenSettings" class="btn" type="button">設定を開く</button>
+              </div>
+            </section>
+            <section class="menu-section">
+              <h3 class="menu-title">お気に入り</h3>
+              <div id="favorites-list" class="svn-chip-list"></div>
+            </section>
+            <section class="menu-section">
+              <div style="display:flex;align-items:center;gap:8px;">
+                <h3 class="menu-title" style="margin:0;">履歴</h3>
+                <button id="history-clear" class="svn-linklike" style="margin-left:auto;">全消去</button>
+              </div>
+              <div id="history-list" class="svn-chip-list"></div>
+            </section>
+          </div>
+        </details>
+
+        <!-- 停止はヘッダー右上に常設（開始後だけ表示） -->
         <button id="btnStop" class="btn" disabled>停止</button>
       </nav>
     </div>
   </header>
 
-  <!-- ツールバー：開始後は CSS で非表示（header は残る） -->
+  <!-- すっきりしたツールバー（メニュー内に履歴/お気に入りを移動） -->
   <div class="toolbar">
     <input id="addr" type="text" placeholder="目的地を検索（例：名古屋駅）">
     <button id="btnSearch" class="btn">検索</button>
     <label><input id="avoidTolls" type="checkbox"> 有料道路回避</label>
     <button id="btnStart" class="btn primary">ナビ開始</button>
-
-    <!-- 追従トグルはツールバー内のまま（開始後は非表示） -->
     <button id="btnFollowToggle" class="btn" type="button">進行方向</button>
-
-    <!-- ▼ お気に入り／履歴（ツールバー直下） -->
-    <details id="quick-lists" open aria-label="お気に入りと履歴リスト">
-      <summary>
-        <span aria-hidden="true">📍</span> お気に入り・履歴
-        <span style="margin-left:auto; font-size:12px; opacity:.7;">タップで開閉</span>
-      </summary>
-      <div class="ql-body svn-quick-lists">
-        <div class="svn-list-block">
-          <h3>お気に入り</h3>
-          <div id="favorites-list" class="svn-chip-list"></div>
-        </div>
-        <div class="svn-list-block">
-          <div class="ql-row">
-            <h3>履歴</h3>
-            <button id="history-clear" class="svn-linklike">全消去</button>
-          </div>
-          <div id="history-list" class="svn-chip-list"></div>
-        </div>
-      </div>
-    </details>
-    <!-- ▲ お気に入り／履歴 -->
   </div>
 
   <!-- 進行案内カード（300m手前〜実行まで表示） -->
