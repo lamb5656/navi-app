@@ -34,6 +34,17 @@
     <button id="btnStop" class="btn" disabled>停止</button>
   </div>
 
+  <section id="quick-lists" class="svn-quick-lists">
+    <div class="svn-list-block">
+      <h3>お気に入り</h3>
+      <div id="favorites-list" class="svn-chip-list"></div>
+    </div>
+    <div class="svn-list-block">
+      <h3>履歴 <button id="history-clear" class="svn-linklike">全消去</button></h3>
+      <div id="history-list" class="svn-chip-list"></div>
+    </div>
+  </section>
+
   <!-- 進行案内カード（300m手前〜実行まで表示） -->
   <div id="maneuver" class="maneuver" aria-live="polite" aria-atomic="true">
     <div class="icon" id="manIcon">⤴︎</div>

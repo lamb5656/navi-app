@@ -259,3 +259,108 @@ export function bindUI(mapCtrl, navCtrl){
 
   log('UI handlers ready');
 }
+
+import { StorageKeys, loadList, saveList, trimMax, upsertPlace, makePlaceId } from './settings.js';
+import { HISTORY_MAX, FAVORITES_MAX, MERGE_DISTANCE_M } from '../config.js';
+import { setGoalAndMaybeStart } from './nav.js';
+
+const favListEl = document.getElementById('favorites-list');
+const histListEl = document.getElementById('history-list');
+const histClearBtn = document.getElementById('history-clear');
+
+export function renderQuickLists() {
+  renderList(StorageKeys.FAVORITES, favListEl, true);
+  renderList(StorageKeys.HISTORY, histListEl, false);
+}
+
+function renderList(key, rootEl, isFav) {
+  const items = loadList(key);
+  rootEl.innerHTML = items.map((p, i) => chipHtml(p, i, isFav)).join('');
+  rootEl.querySelectorAll('.act-start').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const idx = Number(e.currentTarget.dataset.idx);
+      const list = loadList(key);
+      const p = list[idx];
+      setGoalAndMaybeStart(p);
+    });
+  });
+  rootEl.querySelectorAll('.act-fav').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const idx = Number(e.currentTarget.dataset.idx);
+      const list = loadList(key);
+      const p = list[idx];
+      toggleFavorite(p);
+    });
+  });
+  rootEl.querySelectorAll('.act-del').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const idx = Number(e.currentTarget.dataset.idx);
+      const list = loadList(key);
+      list.splice(idx, 1);
+      saveList(key, list);
+      renderQuickLists();
+    });
+  });
+}
+
+function chipHtml(p, idx, isFav) {
+  const star = isFavorite(p) ? '★' : '☆';
+  const name = escapeHtml(p.name || '目的地');
+  return `
+    <div class="svn-chip">
+      <div>
+        <div>${name}</div>
+        <div class="meta">${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}</div>
+      </div>
+      <div class="actions">
+        <button class="svn-iconbtn act-start" title="Start" data-idx="${idx}">▶</button>
+        <button class="svn-iconbtn act-fav" title="Favorite" data-idx="${idx}">${star}</button>
+        <button class="svn-iconbtn act-del" title="Delete" data-idx="${idx}">✕</button>
+      </div>
+    </div>
+  `;
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
+export function toggleFavorite(place) {
+  const favs = loadList(StorageKeys.FAVORITES);
+  const id = place.id || makePlaceId(place.lat, place.lng);
+  const idx = favs.findIndex(p => (p.id || makePlaceId(p.lat, p.lng)) === id);
+  if (idx >= 0) {
+    favs.splice(idx, 1);
+  } else {
+    favs.unshift({ ...place, id, addedAt: Date.now() });
+    trimMax(favs, FAVORITES_MAX);
+  }
+  saveList(StorageKeys.FAVORITES, favs);
+  renderQuickLists();
+}
+
+export function isFavorite(place) {
+  const favs = loadList(StorageKeys.FAVORITES);
+  const id = place.id || makePlaceId(place.lat, place.lng);
+  return favs.some(p => (p.id || makePlaceId(p.lat, p.lng)) === id);
+}
+
+export function addHistory(place) {
+  const hist = loadList(StorageKeys.HISTORY);
+  const now = Date.now();
+  const withId = { ...place, id: place.id || makePlaceId(place.lat, place.lng), ts: now };
+  const merged = upsertPlace(hist, withId, MERGE_DISTANCE_M);
+  trimMax(merged, HISTORY_MAX);
+  saveList(StorageKeys.HISTORY, merged);
+  renderQuickLists();
+}
+
+if (histClearBtn) {
+  histClearBtn.addEventListener('click', () => {
+    saveList(StorageKeys.HISTORY, []);
+    renderQuickLists();
+  });
+}
+
+// initial paint on load
+renderQuickLists();

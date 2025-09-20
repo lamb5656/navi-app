@@ -78,3 +78,47 @@ export function resetSettings() {
   writeStore({ ...DEFAULTS });
   initSettings();
 }
+
+export const StorageKeys = {
+  HISTORY: 'NAV_HISTORY_V1',
+  FAVORITES: 'NAV_FAVORITES_V1'
+};
+
+export function loadList(key) {
+  try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; }
+}
+
+export function saveList(key, arr) {
+  localStorage.setItem(key, JSON.stringify(arr));
+}
+
+export function upsertPlace(list, place, mergeDistanceM) {
+  // place: { id, name, lat, lng, ts }
+  const existingIdx = list.findIndex(p => distanceM(p.lat, p.lng, place.lat, place.lng) <= mergeDistanceM);
+  if (existingIdx >= 0) {
+    list[existingIdx] = { ...list[existingIdx], name: place.name, ts: place.ts };
+  } else {
+    list.unshift(place);
+  }
+  return list;
+}
+
+export function distanceM(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+export function trimMax(list, max) {
+  if (list.length > max) list.length = max;
+  return list;
+}
+
+export function makePlaceId(lat, lng) {
+  // stable id by rounding to 1e-5 (~1m)
+  return `${lat.toFixed(5)},${lng.toFixed(5)}`;
+}

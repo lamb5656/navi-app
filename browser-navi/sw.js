@@ -1,7 +1,7 @@
 // /browser-navi/sw.js
 // PWA Service Worker (cache-first for app shell, no-cache for APIs)
 
-const CACHE_NAME = 'navi-v5'; // bump this to force refresh
+const CACHE_VERSION = 'svn-cache-v5';
 const APP_SHELL = [
   './',
   './index.html',

@@ -201,3 +201,38 @@ export class NavigationController {
 export function createNavigation(mapCtrl) {
   return new NavigationController(mapCtrl);
 }
+
+import { addHistory, toggleFavorite, isFavorite } from './ui.js';
+
+// call this when user decides destination from search or list
+export function setGoalAndMaybeStart(place) {
+  // place: { name, lat, lng } (+ optional profile)
+  // existing logic to set goal marker / input fields...
+  const goalNameEl = document.getElementById('goal-text');
+  if (goalNameEl && place.name) goalNameEl.value = place.name;
+  // optionally: auto-start if a setting is enabled; here we just compute route
+  // startNavigation(); // if you want auto
+  // keep last selected for potential "recenter" behavior
+  window.__lastSelectedGoal = place;
+}
+
+// call this inside your arrival handler (20m auto-stop) just before stopping
+export function onArrivedAtGoal(goal) {
+  // goal: { name, lat, lng }
+  try { addHistory(goal); } catch {}
+  // existing arrival stop logic...
+}
+
+// UI hook for "☆" on current destination card (if you have one)
+export function wireFavoriteButton(buttonEl, currentGoalGetter) {
+  if (!buttonEl) return;
+  const sync = () => {
+    const g = currentGoalGetter();
+    buttonEl.textContent = g && isFavorite(g) ? '★' : '☆';
+  };
+  buttonEl.addEventListener('click', () => {
+    const g = currentGoalGetter();
+    if (g) { toggleFavorite(g); sync(); }
+  });
+  sync();
+}
