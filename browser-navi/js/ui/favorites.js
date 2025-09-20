@@ -50,14 +50,23 @@ export function toggleFavorite(item) {
   saveFavorites(favs);
 }
 
-export function addHistory(item) {
-  // 既存地点と近接(≈1m〜数十m)なら上書き、なければ先頭追加
+export function addHistory(item){
   const hist = loadHistory();
-  const target = normalizePlace(item);
-  const merged = upsertPlace(hist, target, /*mergeDistanceM*/ 30);
-  trimMax(merged, 30);
-  saveHistory(merged);
+  const p = normalizePlace(item);
+
+  // 1) 既存と完全一致（id or name+lng+lat）を除去
+  const filtered = hist.filter(h => !(h.id === p.id || (h.name === p.name && h.lng === p.lng && h.lat === p.lat)));
+
+  // 2) 先頭に追加
+  filtered.unshift(p);
+
+  // 3) 上限（30件など）を適用
+  // settings.js の trimMax があるなら使ってOK。ここでは固定で安全運用。
+  if (filtered.length > 30) filtered.length = 30;
+
+  saveHistory(filtered);
 }
+
 
 // ---- レンダリング -------------------------------------------------
 
