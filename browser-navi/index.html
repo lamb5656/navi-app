@@ -19,20 +19,21 @@
       <nav class="nav">
         <a href="howto.html" rel="noopener noreferrer">設定方法</a>
         <a href="#" id="btnOpenSettings">設定</a>
+        <!-- 停止はヘッダー右上に常設。開始前は disabled で非表示、開始後に有効化されて表示 -->
+        <button id="btnStop" class="btn" disabled>停止</button>
       </nav>
     </div>
   </header>
 
-  <!-- ツールバー：この中に“#quick-lists”を内包。開始時に一緒に隠れる -->
+  <!-- ツールバー：開始後は CSS で非表示（header は残る） -->
   <div class="toolbar">
     <input id="addr" type="text" placeholder="目的地を検索（例：名古屋駅）">
     <button id="btnSearch" class="btn">検索</button>
     <label><input id="avoidTolls" type="checkbox"> 有料道路回避</label>
     <button id="btnStart" class="btn primary">ナビ開始</button>
 
-    <!-- 追従トグル＆停止（ナビ中のみ右上固定で表示） -->
+    <!-- 追従トグルはツールバー内のまま（開始後は非表示） -->
     <button id="btnFollowToggle" class="btn" type="button">進行方向</button>
-    <button id="btnStop" class="btn" disabled>停止</button>
 
     <!-- ▼ お気に入り／履歴（ツールバー直下） -->
     <details id="quick-lists" open aria-label="お気に入りと履歴リスト">
