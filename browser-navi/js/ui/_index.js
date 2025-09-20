@@ -95,8 +95,9 @@ export function bindUI(mapCtrl, navCtrl){
     if (t && t.closest('#searchList')) return;
 
     // 1) お気に入り／履歴の「▶（開始）」を処理
-    const goBtn = findGoButton(t);
-    if (goBtn) {
+    const listRoot = t && t.closest('#favorites-list, #history-list');
+    const goBtn = listRoot && findGoButton(t);
+    if (listRoot && goBtn) {
       e.preventDefault();
       const item = findItemNode(goBtn);
       // 座標の取得（data-lng/lat or data-coords="lng,lat"）
