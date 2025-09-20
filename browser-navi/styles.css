@@ -2,9 +2,8 @@
   --container:1100px;
   --ink:#0f172a; --muted:#64748b; --brand:#1b6ef3;
   --bg:#f8fafc; --card:#fff; --border:#e2e8f0; --shadow:0 10px 30px rgba(15,23,42,.08);
-  --map-top:180px;     /* header+toolbar 分 */
+  --map-top:180px;     /* header+toolbar 分（toolbarが高いほど伸びる） */
   --map-bottom:140px;  /* HUD 分 */
-  --ql-offset:8px;     /* Quick Lists の上部余白 */
 }
 *{box-sizing:border-box}
 html,body{margin:0;padding:0;height:100%}
@@ -25,6 +24,7 @@ body.theme-dark{ --ink:#e5e7eb; --muted:#94a3b8; --brand:#60a5fa; --bg:#0b1220; 
 .btn.primary{background:#1b6ef3;border-color:transparent;color:#fff}
 .btn:disabled{opacity:.5;pointer-events:none}
 
+/* map は header と toolbar の下に敷く */
 #map{position:fixed;inset:var(--map-top) 0 var(--map-bottom) 0}
 
 /* HUD */
@@ -43,7 +43,7 @@ body.theme-dark .hud{background:rgba(15,23,42,.96)}
 .card.settings .row{margin:10px 0}
 .card .actions{margin-top:8px;text-align:right}
 
-/* ナビ中のコンパクト表示 */
+/* ナビ中のコンパクト表示：toolbar をまるごと畳む */
 body.navigating { --map-top:66px; }
 body.navigating .toolbar { height:0; padding:0; overflow:hidden; border:0; }
 body.navigating .nav { display:none; }
@@ -67,21 +67,40 @@ body:not(.navigating) #btnFollowToggle{display:none;}
 .maneuver .dist b{font-size:18px}
 .maneuver .sub{font-size:14px; color:var(--muted)}
 
-/* 再中心ボタン（手動パン時のみ表示） */
+/* 再中心（手動パン時のみ表示） */
 .fab{position:fixed; right:12px; bottom:calc(var(--map-bottom) + 12px); z-index:60; border-radius:999px; padding:12px 14px; background:var(--card); border:1px solid var(--border); box-shadow:var(--shadow); display:none}
 body.follow-paused .fab{display:inline-block}
 
-/* ---- optional: keep follow button inline with stop ---- */
-#btn-follow { vertical-align: middle; }
-.controls-row, .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-
+/* 検索候補 */
 .search-results { margin-top: 8px; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; background: #fff; }
 .sr-item { display:block; width:100%; text-align:left; padding:10px 12px; border:0; border-bottom:1px solid #eee; background:transparent; cursor:pointer; }
 .sr-item:last-child { border-bottom:0; }
 .sr-empty,.sr-loading,.sr-error { padding:10px 12px; color:#666; }
 
-/* ===== お気に入り／履歴：共通レイアウト（従来定義） ===== */
-.svn-quick-lists { padding: 8px 12px; }
+/* ===== お気に入り／履歴（ツールバー直下） ===== */
+#quick-lists{
+  width:100%;
+  border:1px solid var(--border);
+  border-radius:12px;
+  background:var(--card);
+  box-shadow:var(--shadow);
+  overflow:hidden;
+  margin-top:8px; /* 入力欄のすぐ下 */
+}
+#quick-lists > summary{
+  list-style:none; cursor:pointer;
+  display:flex; align-items:center; gap:8px;
+  padding:10px 12px; font-weight:700;
+  border-bottom:1px solid var(--border); user-select:none;
+}
+#quick-lists > summary::-webkit-details-marker{ display:none; }
+#quick-lists .ql-body{ padding:10px 12px; }
+#quick-lists h3{ margin:0 0 6px 0; font-size:14px; display:flex; align-items:center; gap:8px; }
+#quick-lists .ql-row{ display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+#history-clear{ margin-left:auto; }
+
+/* リストの中身（既存定義を再利用） */
+.svn-quick-lists { padding: 0; }
 .svn-list-block { margin-bottom: 8px; }
 .svn-chip-list { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 6px; }
 .svn-chip {
@@ -91,54 +110,11 @@ body.follow-paused .fab{display:inline-block}
 }
 .svn-chip .meta { opacity: 0.7; font-size: 12px; }
 .svn-chip .actions { display: flex; gap: 6px; }
-.svn-iconbtn {
-  border: none; background: transparent; cursor: pointer; font-size: 16px; line-height: 1;
-}
+.svn-iconbtn { border: none; background: transparent; cursor: pointer; font-size: 16px; line-height: 1; }
 .svn-linklike { border: none; background: transparent; color: var(--brand); cursor: pointer; }
 :root[data-theme="dark"] .svn-chip { border-color: #444; background: #1b1b1b; }
-
-/* ===== お気に入り／履歴：オーバーレイパネル（details） ===== */
-#quick-lists{
-  position:fixed;
-  left:8px; right:8px;
-  top:calc(var(--map-top) + var(--ql-offset));
-  z-index:70; /* map より確実に前面 */
-  max-width:var(--container);
-  margin:0 auto;
-  border:1px solid var(--border);
-  border-radius:12px;
-  background:var(--card);
-  box-shadow:var(--shadow);
-  overflow:hidden;
-}
-
-/* 閉じているときはヘッダーだけ見せる */
-#quick-lists:not([open]) .ql-body{ display:none; }
-
-/* ヘッダー（summary） */
-#quick-lists > summary{
-  list-style:none;
-  cursor:pointer;
-  display:flex; align-items:center; gap:8px;
-  padding:10px 12px;
-  font-weight:700;
-  border-bottom:1px solid var(--border);
-  user-select:none;
-}
-#quick-lists > summary::-webkit-details-marker{ display:none; }
-
-/* 本体 */
-#quick-lists .ql-body{ padding:10px 12px; }
-#quick-lists h3{ margin:0 0 6px 0; font-size:14px; display:flex; align-items:center; gap:8px; }
-#quick-lists .ql-row{ display:flex; align-items:center; gap:8px; margin-bottom:6px; }
-#history-clear{ margin-left:auto; }
 
 /* 狭小画面では1列に */
 @media (max-width:480px){
   .svn-chip-list{ grid-template-columns: 1fr; }
-}
-
-/* ナビ中（toolbar省略時）でも重ならないように追従 */
-body.navigating #quick-lists{
-  top:calc(var(--map-top) + var(--ql-offset));
 }

@@ -23,6 +23,7 @@
     </div>
   </header>
 
+  <!-- ツールバー：この中に“#quick-lists”を内包（開始時に一緒に隠れる） -->
   <div class="toolbar">
     <input id="addr" type="text" placeholder="目的地を検索（例：名古屋駅）">
     <button id="btnSearch" class="btn">検索</button>
@@ -32,26 +33,26 @@
     <!-- 追従トグル＆停止（ナビ中のみ右上固定で表示） -->
     <button id="btnFollowToggle" class="btn" type="button">進行方向</button>
     <button id="btnStop" class="btn" disabled>停止</button>
-  </div>
 
-  <!-- ▼ お気に入り／履歴：地図の上に重ねる開閉パネル -->
-  <details id="quick-lists" open aria-label="お気に入りと履歴リスト">
-    <summary><span aria-hidden="true">📍</span> お気に入り・履歴 <span style="margin-left:auto; font-size:12px; opacity:.7;">タップで開閉</span></summary>
-    <div class="ql-body">
-      <div class="svn-list-block">
-        <h3>お気に入り</h3>
-        <div id="favorites-list" class="svn-chip-list"></div>
-      </div>
-      <div class="svn-list-block">
-        <div class="ql-row">
-          <h3>履歴</h3>
-          <button id="history-clear" class="svn-linklike">全消去</button>
+    <!-- ▼ お気に入り／履歴（ツールバー直下・同一DOM内） -->
+    <details id="quick-lists" open aria-label="お気に入りと履歴リスト">
+      <summary><span aria-hidden="true">📍</span> お気に入り・履歴 <span style="margin-left:auto; font-size:12px; opacity:.7;">タップで開閉</span></summary>
+      <div class="ql-body svn-quick-lists">
+        <div class="svn-list-block">
+          <h3>お気に入り</h3>
+          <div id="favorites-list" class="svn-chip-list"></div>
         </div>
-        <div id="history-list" class="svn-chip-list"></div>
+        <div class="svn-list-block">
+          <div class="ql-row">
+            <h3>履歴</h3>
+            <button id="history-clear" class="svn-linklike">全消去</button>
+          </div>
+          <div id="history-list" class="svn-chip-list"></div>
+        </div>
       </div>
-    </div>
-  </details>
-  <!-- ▲ お気に入り／履歴 -->
+    </details>
+    <!-- ▲ お気に入り／履歴 -->
+  </div>
 
   <!-- 進行案内カード（300m手前〜実行まで表示） -->
   <div id="maneuver" class="maneuver" aria-live="polite" aria-atomic="true">
