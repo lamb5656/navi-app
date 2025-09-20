@@ -11,7 +11,7 @@ function toast(msg, ms = 2000) {
   setTimeout(() => (t.style.opacity = '0'), ms);
 }
 
-/** 強制表示: 開く時だけ .svn-force-open を付与、閉じる時は外す */
+/** Force-open helper for cards (no CSS dependency) */
 function ensureForceStyle() {
   let styleTag = document.getElementById('svn-force-style');
   if (!styleTag) {
@@ -64,27 +64,22 @@ export function bindUI(mapCtrl, navCtrl){
   };
   syncAvoidUIFromStore();
 
-  // ---------- 検索 ----------
+  // ---------- Geocode ----------
   async function geocode(text){
     const url = `${API_BASE}/geocode?text=${encodeURIComponent(text)}`;
     const res = await withBackoff(() => fetch(url, { headers: { Accept: 'application/json' } }), { retries: 1, base: 300 });
     if (!res.ok) throw new Error(`geocode http ${res.status}`);
     const data = await res.json();
     log('geocode raw', data);
-    // 返り値の形を正規化
     const items = normalizeGeocode(data);
     log('geocode normalized', items?.length);
     return items;
   }
 
   function normalizeGeocode(data){
-    // 1) すでに配列
     if (Array.isArray(data)) return data;
-    // 2) {results: [...]}
     if (Array.isArray(data?.results)) return data.results;
-    // 3) {data: [...]}
     if (Array.isArray(data?.data)) return data.data;
-    // 4) {features:[{geometry:{coordinates:[lng,lat]},properties:{display_name}}]}
     if (Array.isArray(data?.features)) {
       return data.features
         .map(f=>{
@@ -93,17 +88,20 @@ export function bindUI(mapCtrl, navCtrl){
         })
         .filter(Boolean);
     }
-    // 5) {items:[...]}, {places:[...]} も一応拾う
     if (Array.isArray(data?.items)) return data.items;
     if (Array.isArray(data?.places)) return data.places;
-    // 6) Nominatim素の返りが入ってるキー
     if (Array.isArray(data?.nominatim)) return data.nominatim;
-    // 7) 想定外 → 空
     return [];
   }
 
+  // ---------- Search UI (single-tap to pick & close) ----------
   function openSearchCard(){ if (els.searchCard){ forceOpen(els.searchCard); } }
-  function closeSearchCard(){ if (els.searchCard){ forceClose(els.searchCard); } }
+  function closeSearchCard(){
+    if (!els.searchCard) return;
+    forceClose(els.searchCard);
+    // blur input to avoid secondary "tap-to-focus then tap-to-activate" behavior on iOS
+    if (document.activeElement === els.addr) els.addr.blur();
+  }
 
   function renderSearchResults(items){
     if (!els.searchList) return;
@@ -112,21 +110,44 @@ export function bindUI(mapCtrl, navCtrl){
       els.searchList.innerHTML = '<div class="sr-empty">候補がありません</div>';
       openSearchCard(); return;
     }
+
     for (const it of items){
       const name = it.display_name || it.name || it.label || '名称未設定';
-      // キー名のゆらぎに対応
       const lng  = Number(it.lon ?? it.lng ?? it.longitude ?? it.center?.[0]);
       const lat  = Number(it.lat ?? it.latitude ?? it.center?.[1]);
       if (!Number.isFinite(lng) || !Number.isFinite(lat)) continue;
 
       const btn  = document.createElement('button');
-      btn.type = 'button'; btn.className = 'sr-item'; btn.textContent = name;
-      btn.addEventListener('click', ()=>{
-        state.goalLngLat = [lng, lat];
-        if (els.addr) els.addr.value = name;
-        try { if (mapCtrl?.map) mapCtrl.map.easeTo({ center: state.goalLngLat, zoom: Math.max(mapCtrl.map.getZoom(), 14), duration: 400 }); } catch{}
-        closeSearchCard(); toast('目的地を設定しました');
-      });
+      btn.type = 'button';
+      btn.className = 'sr-item';
+      btn.textContent = name;
+      btn.dataset.name = name;
+      btn.dataset.lng = String(lng);
+      btn.dataset.lat = String(lat);
+
+      // One-tap selection handler (pointerdown first on mobile)
+      let handled = false;
+      const onPick = (e)=>{
+        if (handled) return;
+        handled = true;
+        e.preventDefault();
+        e.stopPropagation();
+        const nm  = btn.dataset.name || '';
+        const lon = Number(btn.dataset.lng);
+        const la  = Number(btn.dataset.lat);
+
+        state.goalLngLat = [lon, la];
+        if (els.addr) els.addr.value = nm;
+
+        try {
+          if (mapCtrl?.map) mapCtrl.map.easeTo({ center: state.goalLngLat, zoom: Math.max(mapCtrl.map.getZoom(), 14), duration: 400 });
+        } catch {}
+        closeSearchCard(); // close immediately on first tap
+        toast('目的地を設定しました');
+      };
+
+      btn.addEventListener('pointerdown', onPick, { passive: false });
+      btn.addEventListener('click', onPick, { passive: false });
       els.searchList.appendChild(btn);
     }
     openSearchCard();
@@ -147,7 +168,21 @@ export function bindUI(mapCtrl, navCtrl){
     }
   }
 
-  // ---------- ナビ開始/停止 ----------
+  // Close the search card when tapping outside of it
+  document.addEventListener('pointerdown', (e) => {
+    const open = !!els.searchCard && els.searchCard.style.display !== 'none';
+    if (!open) return;
+    const insideCard = els.searchCard.contains(e.target);
+    const isInput = (e.target === els.addr || (els.addr && els.addr.contains && els.addr.contains(e.target)));
+    if (!insideCard && !isInput) closeSearchCard();
+  }, true);
+
+  // Close with Escape key
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeSearchCard();
+  });
+
+  // ---------- Start / Stop ----------
   const state = { goalLngLat: null };
 
   async function resolveHere(){
@@ -193,6 +228,7 @@ export function bindUI(mapCtrl, navCtrl){
       }
       if (els.btnStop) els.btnStop.disabled = false;
       toast('ナビを開始しました');
+      closeSearchCard();
     }catch(e){ console.error(e); toast('ナビの開始に失敗しました'); }
   }
 
@@ -212,7 +248,7 @@ export function bindUI(mapCtrl, navCtrl){
     toast(next ? '追従を有効にしました' : '追従を停止しました');
   }
 
-  // ---------- 設定 ----------
+  // ---------- Settings ----------
   function onOpenSettings(){
     log('onOpenSettings');
     if (!els.settingsCard) return;
@@ -236,7 +272,7 @@ export function bindUI(mapCtrl, navCtrl){
     toast('設定を保存しました');
   }
 
-  // 直接バインド
+  // ---------- Bindings ----------
   els.btnSearch        && els.btnSearch.addEventListener('click', (e)=>{ e.preventDefault(); onSearch(); });
   els.addr             && els.addr.addEventListener('keydown', (e)=>{ if (e.key==='Enter'){ e.preventDefault(); onSearch(); } });
   els.btnStart         && els.btnStart.addEventListener('click', (e)=>{ e.preventDefault(); onStart(); });
@@ -246,7 +282,7 @@ export function bindUI(mapCtrl, navCtrl){
   els.btnOpenSettings  && els.btnOpenSettings.addEventListener('click', (e)=>{ e.preventDefault(); onOpenSettings(); });
   els.btnSettingsClose && els.btnSettingsClose.addEventListener('click',(e)=>{ e.preventDefault(); onCloseSettings(); });
 
-  // ドキュメント委譲（保険）
+  // Delegation as a fallback
   document.addEventListener('click', (e)=>{
     const q = (sel)=> e.target instanceof Element && e.target.closest(sel);
     if (q('#btnSearch'))         { e.preventDefault(); onSearch();  return; }
