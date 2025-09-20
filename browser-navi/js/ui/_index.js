@@ -3,6 +3,7 @@ import { setupSearch } from './search.js';
 import { renderQuickLists, addHistory } from './favorites.js';
 import { setupSettings } from './settings-panel.js';
 import { setupStartStop } from './startstop.js';
+import { createHUD } from './hud.js';
 
 export function bindUI(mapCtrl, navCtrl){
   const els = {
@@ -33,13 +34,22 @@ export function bindUI(mapCtrl, navCtrl){
     avoidTollsToolbar: $('avoidTolls'),
   };
 
+  const hud = createHUD();
+
   const searchApi = setupSearch(els, mapCtrl);
   setupSettings(els);
+
   const routeApi = setupStartStop(els, navCtrl, {
     onGoalFixed: (place) => { addHistory(place); renderQuickLists(); },
-    onStarted:   (place) => { addHistory(place); renderQuickLists(); }
+    onStarted:   (place) => { addHistory(place); renderQuickLists(); },
+    // HUD sink: called every ~500ms by startstop.js (if navCtrl exposes progress)
+    onTick: (snap) => {
+      // snap: { distanceLeftMeters?, eta?, status? }
+      hud.update(snap);
+    }
   });
 
+  // buttons
   els.btnSearch   && els.btnSearch.addEventListener('click', (e)=>{ e.preventDefault(); searchApi.onSearch(); });
   els.addr        && els.addr.addEventListener('keydown', (e)=>{ if (e.key==='Enter'){ e.preventDefault(); searchApi.onSearch(); } });
 
@@ -48,7 +58,6 @@ export function bindUI(mapCtrl, navCtrl){
   els.btnFollowToggle  && els.btnFollowToggle.addEventListener('click', (e)=>{ e.preventDefault(); routeApi.onFollowToggle(); });
   els.btnRecenter      && els.btnRecenter.addEventListener('click', ()=> toast('中心に戻しました'));
 
-  // Favorite current destination (explicit bind + delegation fallback)
   if (els.btnFavCurrent){
     els.btnFavCurrent.addEventListener('click', (e)=>{
       e.preventDefault();
@@ -58,6 +67,7 @@ export function bindUI(mapCtrl, navCtrl){
 
   renderQuickLists();
 
+  // delegation for safety
   document.addEventListener('click', (e)=>{
     const q = (sel)=> e.target instanceof Element && e.target.closest(sel);
     if (q('#btnSearch'))        { e.preventDefault(); searchApi.onSearch(); return; }
@@ -69,6 +79,7 @@ export function bindUI(mapCtrl, navCtrl){
     if (q('#btnFavCurrent'))    { e.preventDefault(); Promise.resolve(searchApi.onFavCurrent()).then(()=>renderQuickLists()); return; }
   });
 
+  // click-outside close for search card
   document.addEventListener('pointerdown', (e) => {
     const open = !!els.searchCard && els.searchCard.style.display !== 'none';
     if (!open) return;

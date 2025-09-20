@@ -2,28 +2,31 @@ import { toast } from './dom.js';
 import { API_BASE } from '../../config.js';
 import { withBackoff } from '../libs/net.js';
 
+// Periodic polling interval (ms) to pull HUD snapshot from navCtrl when available
+const HUD_POLL_MS = 500;
+
 export function setupStartStop(els, navCtrl, hooks){
-  const state = { goalLngLat: null };
+  const state = { goalLngLat: null, hudTimer: null };
 
   async function geocode(text){
     const url = `${API_BASE}/geocode?text=${encodeURIComponent(text)}`;
     const res = await withBackoff(() => fetch(url, { headers: { Accept: 'application/json' } }), { retries: 1, base: 300 });
     if (!res.ok) throw new Error(`geocode http ${res.status}`);
     const data = await res.json();
-    const it = Array.isArray(data) ? data[0]
+    const first = Array.isArray(data) ? data[0]
       : Array.isArray(data?.results) ? data.results[0]
       : Array.isArray(data?.data) ? data.data[0]
-      : Array.isArray(data?.features) ? pickFromFeature(data.features[0])
+      : Array.isArray(data?.features) ? featureToLL(data.features[0])
       : Array.isArray(data?.items) ? data.items[0]
       : Array.isArray(data?.places) ? data.places[0]
       : Array.isArray(data?.nominatim) ? data.nominatim[0]
       : null;
-    if (!it) return null;
-    const lng = Number(it.lon ?? it.lng ?? it.longitude ?? it.center?.[0]);
-    const lat = Number(it.lat ?? it.latitude ?? it.center?.[1]);
+    if (!first) return null;
+    const lng = Number(first.lon ?? first.lng ?? first.longitude ?? first.center?.[0]);
+    const lat = Number(first.lat ?? first.latitude ?? first.center?.[1]);
     return [lng, lat];
   }
-  const pickFromFeature = (f)=> {
+  const featureToLL = (f)=> {
     const c = f?.geometry?.coordinates;
     return c && { lon: Number(c[0]), lat: Number(c[1]) };
   };
@@ -50,6 +53,32 @@ export function setupStartStop(els, navCtrl, hooks){
     });
   }
 
+  function startHudLoop() {
+    stopHudLoop();
+    state.hudTimer = setInterval(() => {
+      // Try several shapes: getHud(), getProgress(), or plain property
+      const snap =
+        (typeof navCtrl.getHud === 'function' && navCtrl.getHud()) ||
+        (typeof navCtrl.getProgress === 'function' && navCtrl.getProgress()) ||
+        navCtrl.hud ||
+        null;
+      if (!snap) return;
+
+      // Normalize field names
+      const distanceLeftMeters =
+        Number(snap.distanceLeftMeters ?? snap.distance_left_m ?? snap.remainingMeters ?? snap.distance);
+      const eta =
+        snap.eta ?? snap.etaMs ?? snap.etaEpoch ?? snap.arrivalTime ?? null;
+      const status =
+        snap.status ?? snap.phase ?? (snap.recalculating ? '再探索中' : '案内中');
+
+      hooks?.onTick && hooks.onTick({ distanceLeftMeters, eta, status });
+    }, HUD_POLL_MS);
+  }
+  function stopHudLoop() {
+    if (state.hudTimer) { clearInterval(state.hudTimer); state.hudTimer = null; }
+  }
+
   async function onStart(searchApi){
     try{
       const goal = await ensureGoal(searchApi);
@@ -57,30 +86,37 @@ export function setupStartStop(els, navCtrl, hooks){
 
       const here = await resolveHere();
       hooks?.onGoalFixed && hooks.onGoalFixed({ name: (els.addr?.value || '目的地'), lng: Number(goal[0]), lat: Number(goal[1]) });
+
       await navCtrl.start([here, goal]);
 
       if (els.btnFollowToggle){
         els.btnFollowToggle.style.display = '';
-        navCtrl.setFollowEnabled(true);
+        navCtrl.setFollowEnabled?.(true);
         els.btnFollowToggle.textContent = '進行方向';
       }
       if (els.btnStop) els.btnStop.disabled = false;
 
+      // Start HUD polling after navigation starts
+      startHudLoop();
+
       hooks?.onStarted && hooks.onStarted({ name: (els.addr?.value || '目的地'), lng: Number(goal[0]), lat: Number(goal[1]) });
+      hooks?.onTick && hooks.onTick({ status: '案内中' });
       toast('ナビを開始しました');
     }catch(e){ console.error(e); toast('ナビの開始に失敗しました'); }
   }
 
   function onStop(){
-    navCtrl.stop();
+    try { navCtrl.stop?.(); } catch {}
+    stopHudLoop();
     if (els.btnFollowToggle) els.btnFollowToggle.style.display = 'none';
     if (els.btnStop) els.btnStop.disabled = true;
+    hooks?.onTick && hooks.onTick({ distanceLeftMeters: NaN, eta: null, status: '待機中' });
     toast('ナビを停止しました');
   }
 
   function onFollowToggle(){
-    const next = !navCtrl.isFollowEnabled();
-    navCtrl.setFollowEnabled(next);
+    const next = !navCtrl.isFollowEnabled?.();
+    navCtrl.setFollowEnabled?.(next);
     if (els.btnFollowToggle) els.btnFollowToggle.textContent = next ? '進行方向' : '北固定';
     toast(next ? '追従を有効にしました' : '追従を停止しました');
   }
