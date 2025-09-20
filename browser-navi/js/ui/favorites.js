@@ -70,7 +70,7 @@ export function addHistory(item){
 
 // ---- レンダリング -------------------------------------------------
 
-function renderList(container, items, opt = {}) {
+function renderList(container, items, opt = {}){
   if (!container) return;
   container.innerHTML = '';
   if (!Array.isArray(items) || !items.length) {
@@ -85,7 +85,16 @@ function renderList(container, items, opt = {}) {
     li.dataset.lng = String(it.lng);
     li.dataset.lat = String(it.lat);
 
-    // 開始（▶）
+    // ---- 1行目：住所フル表示（折り返し許可） ----
+    const name = document.createElement('div');
+    name.className = 'poi-name';
+    name.textContent = it.name || '(名称未設定)';
+
+    // ---- 2行目：ボタン行 ----
+    const actions = document.createElement('div');
+    actions.className = 'poi-actions';
+
+    // ▶ 開始
     const go = document.createElement('button');
     go.className = 'fav-go';
     go.dataset.action = 'start';
@@ -93,12 +102,7 @@ function renderList(container, items, opt = {}) {
     go.title = 'この目的地で開始';
     go.textContent = '▶';
 
-    // 名称
-    const name = document.createElement('span');
-    name.className = 'poi-name';
-    name.textContent = it.name || '(名称未設定)';
-
-    // お気に入りトグル（★/☆）
+    // ☆/★ トグル
     const star = document.createElement('button');
     star.className = 'fav-star';
     star.title = 'お気に入りに追加/削除';
@@ -106,10 +110,10 @@ function renderList(container, items, opt = {}) {
     star.addEventListener('click', (e) => {
       e.preventDefault(); e.stopPropagation();
       toggleFavorite(it);
-      renderQuickLists(); // 再描画
+      renderQuickLists();
     });
 
-    // 削除（🗑）
+    // 🗑 削除
     const del = document.createElement('button');
     del.className = 'fav-del';
     del.title = 'この項目を削除';
@@ -128,13 +132,16 @@ function renderList(container, items, opt = {}) {
       renderQuickLists();
     });
 
-    li.appendChild(go);
+    actions.appendChild(go);
+    actions.appendChild(star);
+    actions.appendChild(del);
+
     li.appendChild(name);
-    li.appendChild(star);
-    li.appendChild(del);
+    li.appendChild(actions);
     container.appendChild(li);
   }
 }
+
 
 export function renderQuickLists() {
   const els = {
