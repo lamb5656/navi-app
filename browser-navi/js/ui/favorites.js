@@ -1,4 +1,3 @@
-// /browser-navi/js/ui/favorites.js
 import { StorageKeys, loadList, saveList, trimMax, upsertPlace, makePlaceId } from '../settings.js';
 import { HISTORY_MAX, FAVORITES_MAX, MERGE_DISTANCE_M } from '../../config.js';
 import { $ } from './dom.js';
@@ -17,7 +16,6 @@ export function renderQuickLists(){
   els.favoritesList.innerHTML = favs.map((p,i)=>chipHtml(p,i,true)).join('') || '<div class="sr-empty">お気に入りはまだありません</div>';
   els.historyList.innerHTML   = hist.map((p,i)=>chipHtml(p,i,false)).join('') || '<div class="sr-empty">履歴はまだありません</div>';
 
-  // bind actions
   (els.favoritesList.querySelectorAll('.act-start') ?? []).forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const idx = Number(btn.dataset.idx);

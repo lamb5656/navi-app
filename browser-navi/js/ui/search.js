@@ -1,11 +1,11 @@
-// /browser-navi/js/ui/search.js
 import { toast, forceOpen, forceClose } from './dom.js';
 import { API_BASE } from '../../config.js';
 import { withBackoff } from '../libs/net.js';
 import { toggleFavorite } from './favorites.js';
+import { renderQuickLists } from './favorites.js';
 
 export function setupSearch(els, mapCtrl){
-  const state = { goalLngLat: null }; // [lng, lat]
+  const state = { goalLngLat: null };
 
   const normalizeGeocode = (data)=>{
     if (Array.isArray(data)) return data;
@@ -61,7 +61,7 @@ export function setupSearch(els, mapCtrl){
         if (handled) return; handled = true;
         e.preventDefault(); e.stopPropagation();
         state.goalLngLat = [lng, lat];
-        if (els.addr) els.addr.value = name;
+        if (els.addr) { els.addr.value = name; try{ els.addr.blur(); }catch{} }
         try {
           if (mapCtrl?.map) mapCtrl.map.easeTo({ center: state.goalLngLat, zoom: Math.max(mapCtrl.map.getZoom(), 14), duration: 400 });
         } catch {}
@@ -70,7 +70,7 @@ export function setupSearch(els, mapCtrl){
       };
 
       btn.addEventListener('pointerdown', onPick, { passive: false });
-      btn.addEventListener('click', onPick, { passive: false });
+      // intentionally no 'click' to avoid double-tap issues on iOS
       els.searchList.appendChild(btn);
     }
     openSearch();
@@ -102,11 +102,11 @@ export function setupSearch(els, mapCtrl){
     return state.goalLngLat;
   }
 
-  async function onFavCurrent(routeApi){
+  async function onFavCurrent(){
     const goal = state.goalLngLat || await ensureGoalFromInput();
     if (!goal){ toast('先に目的地を選んでにゃ'); return; }
     toggleFavorite({ name: (els.addr?.value || '目的地'), lng: Number(goal[0]), lat: Number(goal[1]) });
-    // 目に見える反応
+    renderQuickLists();
     if (els.appMenu) els.appMenu.open = true;
     toast('お気に入りに登録したにゃ');
   }

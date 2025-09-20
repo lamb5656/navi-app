@@ -1,4 +1,3 @@
-// /browser-navi/js/ui/settings-panel.js
 import { getSetting, setSetting } from '../settings.js';
 import { forceOpen, forceClose, toast } from './dom.js';
 
@@ -16,7 +15,6 @@ export function setupSettings(els){
     syncAvoidUIFromStore();
   };
 
-  // open/close
   els.btnOpenSettings && els.btnOpenSettings.addEventListener('click', (e)=>{ e.preventDefault(); fillSettingsFromStore(); forceOpen(els.settingsCard); });
   els.btnSettingsClose && els.btnSettingsClose.addEventListener('click',(e)=>{
     e.preventDefault();

@@ -1,4 +1,3 @@
-// /browser-navi/js/ui/_index.js
 import { $, forceOpen, forceClose, toast } from './dom.js';
 import { setupSearch } from './search.js';
 import { renderQuickLists, addHistory } from './favorites.js';
@@ -34,7 +33,6 @@ export function bindUI(mapCtrl, navCtrl){
     avoidTollsToolbar: $('avoidTolls'),
   };
 
-  // 小機能セットアップ
   const searchApi = setupSearch(els, mapCtrl);
   setupSettings(els);
   const routeApi = setupStartStop(els, navCtrl, {
@@ -42,20 +40,24 @@ export function bindUI(mapCtrl, navCtrl){
     onStarted:   (place) => { addHistory(place); renderQuickLists(); }
   });
 
-  // 検索UIバインド
   els.btnSearch   && els.btnSearch.addEventListener('click', (e)=>{ e.preventDefault(); searchApi.onSearch(); });
   els.addr        && els.addr.addEventListener('keydown', (e)=>{ if (e.key==='Enter'){ e.preventDefault(); searchApi.onSearch(); } });
 
-  // Start / Stop / Follow
   els.btnStart         && els.btnStart.addEventListener('click',  (e)=>{ e.preventDefault(); routeApi.onStart(searchApi); });
   els.btnStop          && els.btnStop.addEventListener('click',   (e)=>{ e.preventDefault(); routeApi.onStop(); });
   els.btnFollowToggle  && els.btnFollowToggle.addEventListener('click', (e)=>{ e.preventDefault(); routeApi.onFollowToggle(); });
   els.btnRecenter      && els.btnRecenter.addEventListener('click', ()=> toast('中心に戻しました'));
 
-  // 初回のリスト描画
+  // Favorite current destination (explicit bind + delegation fallback)
+  if (els.btnFavCurrent){
+    els.btnFavCurrent.addEventListener('click', (e)=>{
+      e.preventDefault();
+      Promise.resolve(searchApi.onFavCurrent()).then(()=>renderQuickLists());
+    });
+  }
+
   renderQuickLists();
 
-  // デリゲーション（フォールバック）
   document.addEventListener('click', (e)=>{
     const q = (sel)=> e.target instanceof Element && e.target.closest(sel);
     if (q('#btnSearch'))        { e.preventDefault(); searchApi.onSearch(); return; }
@@ -64,12 +66,9 @@ export function bindUI(mapCtrl, navCtrl){
     if (q('#btnFollowToggle'))  { e.preventDefault(); routeApi.onFollowToggle(); return; }
     if (q('#btnOpenSettings'))  { e.preventDefault(); els.btnOpenSettings?.click(); return; }
     if (q('#btnSettingsClose')) { e.preventDefault(); els.btnSettingsClose?.click(); return; }
-    if (q('#btnFavCurrent'))    { e.preventDefault(); searchApi.onFavCurrent(routeApi); return; }
+    if (q('#btnFavCurrent'))    { e.preventDefault(); Promise.resolve(searchApi.onFavCurrent()).then(()=>renderQuickLists()); return; }
   });
 
-  // お気に入り／履歴のハンドラは favorites.js 内で都度付与
-
-  // 検索候補カードの外側タップで閉じる
   document.addEventListener('pointerdown', (e) => {
     const open = !!els.searchCard && els.searchCard.style.display !== 'none';
     if (!open) return;
@@ -78,7 +77,6 @@ export function bindUI(mapCtrl, navCtrl){
     if (!insideCard && !isInput) forceClose(els.searchCard);
   }, true);
 
-  // ESCで閉じる
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && els.searchCard) forceClose(els.searchCard); });
 
   console.log('[SVN] UI boot complete');

@@ -1,4 +1,3 @@
-// /browser-navi/js/ui/dom.js
 export const $ = (id) => document.getElementById(id);
 
 function ensureForceStyle() {

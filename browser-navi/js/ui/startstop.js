@@ -1,4 +1,3 @@
-// /browser-navi/js/ui/startstop.js
 import { toast } from './dom.js';
 import { API_BASE } from '../../config.js';
 import { withBackoff } from '../libs/net.js';
@@ -57,6 +56,7 @@ export function setupStartStop(els, navCtrl, hooks){
       if (!goal){ toast('先に目的地を検索して選択してください'); return; }
 
       const here = await resolveHere();
+      hooks?.onGoalFixed && hooks.onGoalFixed({ name: (els.addr?.value || '目的地'), lng: Number(goal[0]), lat: Number(goal[1]) });
       await navCtrl.start([here, goal]);
 
       if (els.btnFollowToggle){
