@@ -73,6 +73,21 @@ export function bindUI(mapCtrl, navCtrl){
   // =========================
   // クリック委譲（capture）
   // =========================
+  function findGoButton(target){
+    if (!(target instanceof Element)) return null;
+    return target.closest('[data-action="start"], .fav-go, .js-go, .go, .play') ||
+           // 「▶」一文字ボタン/リンクにも対応
+           ([...target.closest('li, div, span, a, button')?.querySelectorAll('button, a')] || [])
+             .find(el => el.textContent?.trim() === '▶') || null;
+  }
+  function findItemNode(btn){
+    if (!btn) return null;
+    // 近い順に探す
+    return btn.closest('[data-lng][data-lat]') ||
+           btn.closest('[data-coords]') ||
+           btn.closest('li') || btn.parentElement;
+  }
+
   document.addEventListener('click', (e)=>{
     const t = e.target instanceof Element ? e.target : null;
 
@@ -80,31 +95,28 @@ export function bindUI(mapCtrl, navCtrl){
     if (t && t.closest('#searchList')) return;
 
     // 1) お気に入り／履歴の「▶（開始）」を処理
-    //    - data-action="start" を優先
-    //    - それが無い場合は .fav-go / .js-go / .go / .play のクラスや、「▶」表記を拾う
-    const goBtn = t && (
-      t.closest('[data-action="start"]') ||
-      t.closest('.fav-go, .js-go, .go, .play')
-    );
+    const goBtn = findGoButton(t);
     if (goBtn) {
       e.preventDefault();
-
-      // クリックされた行（アイテム）から緯度経度と名称を取得
-      const item = goBtn.closest('[data-lng][data-lat]') || goBtn;
-      const lng = Number(item?.dataset?.lng ?? goBtn.dataset.lng);
-      const lat = Number(item?.dataset?.lat ?? goBtn.dataset.lat);
-      // 名称は data-name → テキスト → 既存入力の順
-      const name = (item?.dataset?.name || goBtn.dataset?.name || t.textContent || '').trim() || (els.addr?.value || '目的地');
+      const item = findItemNode(goBtn);
+      // 座標の取得（data-lng/lat or data-coords="lng,lat"）
+      let lng = Number(item?.dataset?.lng);
+      let lat = Number(item?.dataset?.lat);
+      if (!Number.isFinite(lng) || !Number.isFinite(lat)) {
+        const coords = (item?.dataset?.coords || goBtn.dataset?.coords || '').split(',');
+        if (coords.length === 2) {
+          lng = Number(coords[0]); lat = Number(coords[1]);
+        }
+      }
+      // 名称
+      const name = (item?.dataset?.name || goBtn.dataset?.name || goBtn.getAttribute('title') || goBtn.textContent || '').trim() || (els.addr?.value || '目的地');
 
       if (Number.isFinite(lng) && Number.isFinite(lat)) {
-        // アドレス欄を更新し、検索モジュールに目的地を伝える
         if (els.addr) els.addr.value = name;
         if (searchApi?.state) searchApi.state.goalLngLat = [lng, lat];
-
-        // ナビ開始（searchApi をそのまま渡せる）
         Promise.resolve(routeApi.onStart(searchApi)).catch(()=>{});
       } else {
-        toast('座標が見つからないにゃ…（お気に入りのデータ形式を確認してね）');
+        toast('この項目に座標情報が無いみたい…（レンダリングを最新化してにゃ）');
       }
       return;
     }
