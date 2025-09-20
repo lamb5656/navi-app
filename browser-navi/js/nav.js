@@ -1,4 +1,3 @@
-// /browser-navi/js/nav.js
 // Routing, guidance, TTS, reroute, progress card. Provides NavigationController.
 
 import { withBackoff } from './libs/net.js';
@@ -34,6 +33,18 @@ const ICONS = {
   'ramp-right': 'i-ramp-right'
 };
 
+// --- distance helpers (meters) ---
+function haversine(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+function llToObj([lng, lat]) { return { lng: Number(lng), lat: Number(lat) }; }
+
 function pickIcon(step) {
   const t = step?.maneuver?.type || '';
   const m = (step?.maneuver?.modifier || '').toLowerCase();
@@ -55,6 +66,12 @@ export class NavigationController {
     this.lastStepIdx = -1;
     this.hereInitial = null;
     this.followEnabled = false;
+
+    // HUD-related fields
+    this._totalDistanceM = NaN;    // from route summary
+    this._totalDurationS = NaN;    // from route summary
+    this._lastLngLat = null;       // last GPS
+    this._lastRemainM = NaN;       // last computed remaining meters
   }
 
   setHereInitial(lnglat) {
@@ -104,7 +121,13 @@ export class NavigationController {
       this.currentRoute = data;
       drawRoute(data);
 
+      // pick totals from summary if present
+      const sum = data?.routes?.[0]?.summary || data?.summary || null;
+      this._totalDistanceM = Number(sum?.distance ?? NaN);
+      this._totalDurationS = Number(sum?.duration ?? NaN);
+
       this.setFollowEnabled(true);
+      this.lastStepIdx = -1;
 
       if (this.watchId) navigator.geolocation.clearWatch(this.watchId);
       this.watchId = navigator.geolocation.watchPosition(
@@ -126,27 +149,73 @@ export class NavigationController {
     this.currentRoute = null;
     this.lastStepIdx = -1;
     this.setFollowEnabled(false);
+    this._totalDistanceM = NaN;
+    this._totalDurationS = NaN;
+    this._lastLngLat = null;
+    this._lastRemainM = NaN;
     clearRoute();
+  }
+
+  // ----- HUD/public snapshot -----
+  getProgress() {
+    if (!this.currentRoute) return null;
+
+    const steps = this._getSteps();
+    // If we never computed remaining yet, fall back to total
+    const remainM = Number.isFinite(this._lastRemainM) ? this._lastRemainM : (Number.isFinite(this._totalDistanceM) ? this._totalDistanceM : NaN);
+
+    // Estimate remaining duration proportionally to remaining distance
+    let eta = null;
+    if (Number.isFinite(this._totalDistanceM) && this._totalDistanceM > 0 && Number.isFinite(this._totalDurationS)) {
+      const ratio = Number.isFinite(remainM) ? Math.min(Math.max(remainM / this._totalDistanceM, 0), 1) : 1;
+      const remainSec = this._totalDurationS * ratio;
+      eta = Date.now() + remainSec * 1000;
+    }
+
+    return {
+      distanceLeftMeters: remainM,
+      eta,
+      status: '案内中'
+    };
   }
 
   // ----- internals -----
   _onPosition(pos) {
     const { latitude, longitude } = pos.coords;
-    followUser([longitude, latitude], { center: this.followEnabled });
+    const lnglat = [longitude, latitude];
+    this._lastLngLat = lnglat;
+    followUser(lnglat, { center: this.followEnabled });
     if (!this.currentRoute) return;
-    this._updateInstructions([longitude, latitude]);
+    this._updateInstructions(lnglat);
+  }
+
+  _getSteps() {
+    if (this.currentRoute?.routes?.[0]?.segments?.[0]?.steps) {
+      return this.currentRoute.routes[0].segments[0].steps;
+    } else if (this.currentRoute?.steps) {
+      return this.currentRoute.steps;
+    }
+    return [];
   }
 
   _updateInstructions([lng, lat]) {
-    let steps = [];
-    if (this.currentRoute?.routes?.[0]?.segments?.[0]?.steps) {
-      steps = this.currentRoute.routes[0].segments[0].steps;
-    } else if (this.currentRoute?.steps) {
-      steps = this.currentRoute.steps;
-    }
+    const steps = this._getSteps();
     if (!steps.length) return;
 
     const idx = this._findNextStep(steps, [lng, lat]);
+    // Compute remaining meters from idx to end (sum of step.distance)
+    const remainAfterIdx = steps.slice(Math.max(idx, 0)).reduce((acc, s) => acc + Number(s.distance || 0), 0);
+
+    // Distance from current pos to the pivot of current step (waypoint center)
+    const pivot = this._pickStepCenter(steps[idx]);
+    let toPivotM = 0;
+    if (pivot) {
+      toPivotM = haversine(lat, lng, pivot.lat, pivot.lng);
+    }
+
+    // Save snapshot for HUD
+    this._lastRemainM = Math.max(0, toPivotM + remainAfterIdx);
+
     if (idx !== this.lastStepIdx) {
       this.lastStepIdx = idx;
       const step = steps[idx];
@@ -157,18 +226,25 @@ export class NavigationController {
     }
   }
 
+  _pickStepCenter(step) {
+    // ORS: some builds include way_points_center [lng,lat]; or way_points [ [lng,lat], ... ]
+    const wp = Array.isArray(step?.way_points_center)
+      ? step.way_points_center
+      : Array.isArray(step?.way_points)
+        ? step.way_points[0]
+        : null;
+    if (!wp) return null;
+    const o = llToObj(wp);
+    return { lat: o.lat, lng: o.lng };
+  }
+
   _findNextStep(steps, [lng, lat]) {
     let minDist = Infinity;
     let minIdx = 0;
     for (let i = 0; i < steps.length; i++) {
-      const wp = Array.isArray(steps[i].way_points_center)
-        ? steps[i].way_points_center
-        : Array.isArray(steps[i].way_points)
-          ? steps[i].way_points[0]
-          : null;
-      if (!wp) continue;
-      const [slng, slat] = wp;
-      const d = Math.hypot(lng - slng, lat - slat);
+      const cen = this._pickStepCenter(steps[i]);
+      if (!cen) continue;
+      const d = haversine(lat, lng, cen.lat, cen.lng);
       if (d < minDist) { minDist = d; minIdx = i; }
     }
     return minIdx;
@@ -184,7 +260,7 @@ export class NavigationController {
   }
 
   _renderProgress(step) {
-    // index.html は独自カード（#maneuver 等）なので、ここでは存在チェックのみ
+    // If you have a custom progress card, update it here (optional)
     const el = document.getElementById('progress-card');
     if (!el) return;
     const iconKey = pickIcon(step);
@@ -202,28 +278,20 @@ export function createNavigation(mapCtrl) {
   return new NavigationController(mapCtrl);
 }
 
+// (The UI helpers at the bottom were kept as-is in your previous file)
 import { addHistory, toggleFavorite, isFavorite } from './ui.js';
 
 // call this when user decides destination from search or list
 export function setGoalAndMaybeStart(place) {
-  // place: { name, lat, lng } (+ optional profile)
-  // existing logic to set goal marker / input fields...
   const goalNameEl = document.getElementById('goal-text');
   if (goalNameEl && place.name) goalNameEl.value = place.name;
-  // optionally: auto-start if a setting is enabled; here we just compute route
-  // startNavigation(); // if you want auto
-  // keep last selected for potential "recenter" behavior
   window.__lastSelectedGoal = place;
 }
 
-// call this inside your arrival handler (20m auto-stop) just before stopping
 export function onArrivedAtGoal(goal) {
-  // goal: { name, lat, lng }
   try { addHistory(goal); } catch {}
-  // existing arrival stop logic...
 }
 
-// UI hook for "☆" on current destination card (if you have one)
 export function wireFavoriteButton(buttonEl, currentGoalGetter) {
   if (!buttonEl) return;
   const sync = () => {
