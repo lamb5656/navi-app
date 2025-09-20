@@ -4,6 +4,7 @@
   --bg:#f8fafc; --card:#fff; --border:#e2e8f0; --shadow:0 10px 30px rgba(15,23,42,.08);
   --map-top:180px;     /* header+toolbar 分 */
   --map-bottom:140px;  /* HUD 分 */
+  --ql-offset:8px;     /* Quick Lists の上部余白 */
 }
 *{box-sizing:border-box}
 html,body{margin:0;padding:0;height:100%}
@@ -79,6 +80,7 @@ body.follow-paused .fab{display:inline-block}
 .sr-item:last-child { border-bottom:0; }
 .sr-empty,.sr-loading,.sr-error { padding:10px 12px; color:#666; }
 
+/* ===== お気に入り／履歴：共通レイアウト（従来定義） ===== */
 .svn-quick-lists { padding: 8px 12px; }
 .svn-list-block { margin-bottom: 8px; }
 .svn-chip-list { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 6px; }
@@ -92,5 +94,51 @@ body.follow-paused .fab{display:inline-block}
 .svn-iconbtn {
   border: none; background: transparent; cursor: pointer; font-size: 16px; line-height: 1;
 }
-.svn-linklike { border: none; background: transparent; color: var(--accent, #06c); cursor: pointer; }
+.svn-linklike { border: none; background: transparent; color: var(--brand); cursor: pointer; }
 :root[data-theme="dark"] .svn-chip { border-color: #444; background: #1b1b1b; }
+
+/* ===== お気に入り／履歴：オーバーレイパネル（details） ===== */
+#quick-lists{
+  position:fixed;
+  left:8px; right:8px;
+  top:calc(var(--map-top) + var(--ql-offset));
+  z-index:70; /* map より確実に前面 */
+  max-width:var(--container);
+  margin:0 auto;
+  border:1px solid var(--border);
+  border-radius:12px;
+  background:var(--card);
+  box-shadow:var(--shadow);
+  overflow:hidden;
+}
+
+/* 閉じているときはヘッダーだけ見せる */
+#quick-lists:not([open]) .ql-body{ display:none; }
+
+/* ヘッダー（summary） */
+#quick-lists > summary{
+  list-style:none;
+  cursor:pointer;
+  display:flex; align-items:center; gap:8px;
+  padding:10px 12px;
+  font-weight:700;
+  border-bottom:1px solid var(--border);
+  user-select:none;
+}
+#quick-lists > summary::-webkit-details-marker{ display:none; }
+
+/* 本体 */
+#quick-lists .ql-body{ padding:10px 12px; }
+#quick-lists h3{ margin:0 0 6px 0; font-size:14px; display:flex; align-items:center; gap:8px; }
+#quick-lists .ql-row{ display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+#history-clear{ margin-left:auto; }
+
+/* 狭小画面では1列に */
+@media (max-width:480px){
+  .svn-chip-list{ grid-template-columns: 1fr; }
+}
+
+/* ナビ中（toolbar省略時）でも重ならないように追従 */
+body.navigating #quick-lists{
+  top:calc(var(--map-top) + var(--ql-offset));
+}

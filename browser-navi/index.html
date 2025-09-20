@@ -34,16 +34,24 @@
     <button id="btnStop" class="btn" disabled>停止</button>
   </div>
 
-  <section id="quick-lists" class="svn-quick-lists">
-    <div class="svn-list-block">
-      <h3>お気に入り</h3>
-      <div id="favorites-list" class="svn-chip-list"></div>
+  <!-- ▼ お気に入り／履歴：地図の上に重ねる開閉パネル -->
+  <details id="quick-lists" open aria-label="お気に入りと履歴リスト">
+    <summary><span aria-hidden="true">📍</span> お気に入り・履歴 <span style="margin-left:auto; font-size:12px; opacity:.7;">タップで開閉</span></summary>
+    <div class="ql-body">
+      <div class="svn-list-block">
+        <h3>お気に入り</h3>
+        <div id="favorites-list" class="svn-chip-list"></div>
+      </div>
+      <div class="svn-list-block">
+        <div class="ql-row">
+          <h3>履歴</h3>
+          <button id="history-clear" class="svn-linklike">全消去</button>
+        </div>
+        <div id="history-list" class="svn-chip-list"></div>
+      </div>
     </div>
-    <div class="svn-list-block">
-      <h3>履歴 <button id="history-clear" class="svn-linklike">全消去</button></h3>
-      <div id="history-list" class="svn-chip-list"></div>
-    </div>
-  </section>
+  </details>
+  <!-- ▲ お気に入り／履歴 -->
 
   <!-- 進行案内カード（300m手前〜実行まで表示） -->
   <div id="maneuver" class="maneuver" aria-live="polite" aria-atomic="true">
