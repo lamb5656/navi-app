@@ -32,10 +32,17 @@
                 <button id="btnOpenSettings" class="btn" type="button">設定を開く</button>
               </div>
             </section>
+
+            <!-- お気に入り -->
             <section class="menu-section">
               <h3 class="menu-title">お気に入り</h3>
+              <div class="menu-actions" style="margin-bottom:8px;">
+                <button id="btnFavCurrent" class="btn" type="button">現在の目的地を☆登録</button>
+              </div>
               <div id="favorites-list" class="svn-chip-list"></div>
             </section>
+
+            <!-- 履歴 -->
             <section class="menu-section">
               <div style="display:flex;align-items:center;gap:8px;">
                 <h3 class="menu-title" style="margin:0;">履歴</h3>
@@ -52,7 +59,7 @@
     </div>
   </header>
 
-  <!-- すっきりしたツールバー（メニュー内に履歴/お気に入りを移動） -->
+  <!-- すっきりしたツールバー（メニュー内に履歴/お気に入りを集約） -->
   <div class="toolbar">
     <input id="addr" type="text" placeholder="目的地を検索（例：名古屋駅）">
     <button id="btnSearch" class="btn">検索</button>

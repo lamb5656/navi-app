@@ -248,6 +248,19 @@ export function bindUI(mapCtrl, navCtrl){
     toast(next ? '追従を有効にしました' : '追従を停止しました');
   }
 
+  // ---------- Favorite current goal ----------
+  function onFavCurrent(){
+    const goal = state.goalLngLat;
+    if (!goal){ toast('先に目的地を選んでにゃ'); return; }
+    const place = {
+      name: (els.addr?.value || '目的地'),
+      lng: Number(goal[0]),
+      lat: Number(goal[1]),
+    };
+    toggleFavorite(place);
+    toast('お気に入りに登録したにゃ');
+  }
+
   // ---------- Settings ----------
   function onOpenSettings(){
     log('onOpenSettings');
@@ -279,6 +292,11 @@ export function bindUI(mapCtrl, navCtrl){
   els.btnStop          && els.btnStop.addEventListener('click',  (e)=>{ e.preventDefault(); onStop();  });
   els.btnFollowToggle  && els.btnFollowToggle.addEventListener('click', (e)=>{ e.preventDefault(); onFollowToggle(); });
   els.btnRecenter      && els.btnRecenter.addEventListener('click', ()=> toast('中心に戻しました'));
+
+  // メニュー内ボタン
+  const btnFavCurrent = document.getElementById('btnFavCurrent');
+  btnFavCurrent && btnFavCurrent.addEventListener('click', (e)=>{ e.preventDefault(); onFavCurrent(); });
+
   els.btnOpenSettings  && els.btnOpenSettings.addEventListener('click', (e)=>{ e.preventDefault(); onOpenSettings(); });
   els.btnSettingsClose && els.btnSettingsClose.addEventListener('click',(e)=>{ e.preventDefault(); onCloseSettings(); });
 
@@ -289,6 +307,7 @@ export function bindUI(mapCtrl, navCtrl){
     if (q('#btnStart'))          { e.preventDefault(); onStart();   return; }
     if (q('#btnStop'))           { e.preventDefault(); onStop();    return; }
     if (q('#btnFollowToggle'))   { e.preventDefault(); onFollowToggle(); return; }
+    if (q('#btnFavCurrent'))     { e.preventDefault(); onFavCurrent(); return; }
     if (q('#btnOpenSettings'))   { e.preventDefault(); onOpenSettings(); return; }
     if (q('#btnSettingsClose'))  { e.preventDefault(); onCloseSettings(); return; }
   });
