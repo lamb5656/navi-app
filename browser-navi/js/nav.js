@@ -60,20 +60,20 @@ function pickIcon(step) {
   return ICONS.straight;
 }
 
-// totals: ORS(summary) → OSRM(route.distance/duration) → sum legs
+// ▼ nav.js の extractTotals を丸ごとこれに置換
 function extractTotals(data) {
   const route0 = data?.routes?.[0];
   if (!route0) return { distanceM: NaN, durationS: NaN };
 
-  // ORS style
+  // 1) ORS summary
   if (route0.summary && Number.isFinite(route0.summary.distance) && Number.isFinite(route0.summary.duration)) {
     return { distanceM: Number(route0.summary.distance), durationS: Number(route0.summary.duration) };
   }
-  // OSRM style (top-level on route)
+  // 2) OSRM route-level
   if (Number.isFinite(route0.distance) && Number.isFinite(route0.duration)) {
     return { distanceM: Number(route0.distance), durationS: Number(route0.duration) };
   }
-  // Sum over legs (both engines can have legs)
+  // 3) legs 合算
   if (Array.isArray(route0.legs) && route0.legs.length) {
     let d = 0, s = 0;
     for (const leg of route0.legs) {
@@ -82,8 +82,31 @@ function extractTotals(data) {
     }
     if (d > 0 && s > 0) return { distanceM: d, durationS: s };
   }
+  // 4) ▼ ここが新規：geometry から総距離を自前積算
+  try {
+    const coords = route0.geometry?.coordinates;
+    if (Array.isArray(coords) && coords.length > 1) {
+      let sum = 0;
+      for (let i = 1; i < coords.length; i++) {
+        const [lng1, lat1] = coords[i - 1];
+        const [lng2, lat2] = coords[i];
+        sum += (function hav(lat1, lng1, lat2, lng2) {
+          const R=6371000, toRad=(d)=>d*Math.PI/180;
+          const dLat=toRad(lat2-lat1), dLng=toRad(lng2-lng1);
+          const a=Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLng/2)**2;
+          return 2*R*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        })(lat1, lng1, lat2, lng2);
+      }
+      // duration はプロファイルから概算（保険）
+      const profile = (typeof getSetting === 'function' && (getSetting('profile')||'driving-car')) || 'driving-car';
+      const kmh = profile === 'foot-walking' ? 5 : profile === 'cycling-regular' ? 18 : 40;
+      const durationS = sum / (kmh * 1000 / 3600);
+      return { distanceM: sum, durationS };
+    }
+  } catch {}
   return { distanceM: NaN, durationS: NaN };
 }
+
 
 // steps: ORS(segments[0].steps) or OSRM(legs[0].steps)
 function extractSteps(data) {

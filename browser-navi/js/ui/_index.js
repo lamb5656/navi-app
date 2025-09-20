@@ -1,3 +1,4 @@
+// /browser-navi/js/ui/_index.js
 import { $, forceOpen, forceClose, toast } from './dom.js';
 import { setupSearch } from './search.js';
 import { renderQuickLists, addHistory } from './favorites.js';
@@ -34,27 +35,32 @@ export function bindUI(mapCtrl, navCtrl){
     avoidTollsToolbar: $('avoidTolls'),
   };
 
+  // === HUD ===
   const hud = createHUD();
+  const hudSink = (snap) => hud.update(snap);
 
+  // 小機能セットアップ
   const searchApi = setupSearch(els, mapCtrl);
   setupSettings(els);
 
+  // Start/Stop：navCtrl からの進捗は hooks.onTick 経由で HUD に流す
   const routeApi = setupStartStop(els, navCtrl, {
     onGoalFixed: (place) => { addHistory(place); renderQuickLists(); },
     onStarted:   (place) => { addHistory(place); renderQuickLists(); },
-    // HUD sink
-    onTick: (snap) => { hud.update(snap); }
+    onTick:      (snap)  => { hudSink(snap); }
   });
 
-  // buttons
+  // 検索UI
   els.btnSearch   && els.btnSearch.addEventListener('click', (e)=>{ e.preventDefault(); searchApi.onSearch(); });
   els.addr        && els.addr.addEventListener('keydown', (e)=>{ if (e.key==='Enter'){ e.preventDefault(); searchApi.onSearch(); } });
 
+  // Start / Stop / Follow
   els.btnStart         && els.btnStart.addEventListener('click',  (e)=>{ e.preventDefault(); routeApi.onStart(searchApi); });
   els.btnStop          && els.btnStop.addEventListener('click',   (e)=>{ e.preventDefault(); routeApi.onStop(); });
   els.btnFollowToggle  && els.btnFollowToggle.addEventListener('click', (e)=>{ e.preventDefault(); routeApi.onFollowToggle(); });
   els.btnRecenter      && els.btnRecenter.addEventListener('click', ()=> toast('中心に戻しました'));
 
+  // お気に入り登録
   if (els.btnFavCurrent){
     els.btnFavCurrent.addEventListener('click', (e)=>{
       e.preventDefault();
@@ -64,13 +70,11 @@ export function bindUI(mapCtrl, navCtrl){
 
   renderQuickLists();
 
-  // ---- Delegation with guards (prevents "double tap to close") ----
+  // ---- Delegation with guards（候補内は何もしない→“二度タップ”防止）----
   document.addEventListener('click', (e)=>{
-    // 1) 検索候補の内側なら、委譲は何もしない（候補の pointerdown を優先）
     const insideSearchList = e.target instanceof Element && e.target.closest('#searchList');
     if (insideSearchList) return;
 
-    // 2) 通常の委譲
     const q = (sel)=> e.target instanceof Element && e.target.closest(sel);
     if (q('#btnSearch'))        { e.preventDefault(); searchApi.onSearch(); return; }
     if (q('#btnStart'))         { e.preventDefault(); routeApi.onStart(searchApi); return; }
@@ -81,14 +85,14 @@ export function bindUI(mapCtrl, navCtrl){
     if (q('#btnFavCurrent'))    { e.preventDefault(); Promise.resolve(searchApi.onFavCurrent()).then(()=>renderQuickLists()); return; }
   }, { capture: true });
 
-  // click-outside close for search card
+  // 検索カードの外側タップで閉じる（capture で先取り）
   document.addEventListener('pointerdown', (e) => {
     const open = !!els.searchCard && els.searchCard.style.display !== 'none';
     if (!open) return;
     const insideCard = els.searchCard.contains(e.target);
     const isInput = (e.target === els.addr || (els.addr && els.addr.contains && els.addr.contains(e.target)));
     if (!insideCard && !isInput) {
-      e.stopPropagation(); // 外側ハンドラの再オープンを抑止
+      e.stopPropagation();
       forceClose(els.searchCard);
     }
   }, true);

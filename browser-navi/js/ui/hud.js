@@ -3,8 +3,7 @@ const get = (id) => document.getElementById(id);
 
 function formatDistanceKm(m) {
   if (!Number.isFinite(m) || m < 0) return '–';
-  // show in km (one decimal)
-  return (Math.max(m, 0) / 1000).toFixed(1);
+  return (Math.max(m, 0) / 1000).toFixed(1); // km, 1 decimal
 }
 function formatEta(v) {
   if (!v) return '–:–';
