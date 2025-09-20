@@ -8,6 +8,10 @@ const HUD_POLL_MS = 500;
 export function setupStartStop(els, navCtrl, hooks){
   const state = { goalLngLat: null, hudTimer: null };
 
+  // hide maneuver panel until navigation actually starts
+  const manEl = document.getElementById('maneuver');
+  if (manEl) manEl.style.display = 'none';
+
   async function geocode(text){
     const url = `${API_BASE}/geocode?text=${encodeURIComponent(text)}`;
     const res = await withBackoff(() => fetch(url, { headers: { Accept: 'application/json' } }), { retries: 1, base: 300 });
@@ -89,6 +93,9 @@ export function setupStartStop(els, navCtrl, hooks){
 
       await navCtrl.start([here, goal]);
 
+      // show maneuver panel once navigation starts
+      if (manEl) manEl.style.display = '';
+
       if (els.btnFollowToggle){
         els.btnFollowToggle.style.display = '';
         navCtrl.setFollowEnabled?.(true);
@@ -108,6 +115,10 @@ export function setupStartStop(els, navCtrl, hooks){
   function onStop(){
     try { navCtrl.stop?.(); } catch {}
     stopHudLoop();
+
+    // hide maneuver panel on stop
+    if (manEl) manEl.style.display = 'none';
+
     if (els.btnFollowToggle) els.btnFollowToggle.style.display = 'none';
     if (els.btnStop) els.btnStop.disabled = true;
     hooks?.onTick && hooks.onTick({ distanceLeftMeters: NaN, eta: null, status: '待機中' });
