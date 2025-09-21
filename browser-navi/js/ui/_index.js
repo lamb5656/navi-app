@@ -43,7 +43,7 @@ export function bindUI(mapCtrl, navCtrl){
   setupSettings(els);
 
   const routeApi = setupStartStop(els, navCtrl, {
-    // ★重複回避：開始確定時のみ履歴追加
+    // 開始確定時のみ履歴追加（元の実装を維持）
     onGoalFixed: () => {},
     onStarted:   (place) => { addHistory(place); renderQuickLists(); },
     onTick:      (snap)  => { hudSink(snap); }
@@ -57,9 +57,37 @@ export function bindUI(mapCtrl, navCtrl){
   els.btnStart         && els.btnStart.addEventListener('click',  (e)=>{ e.preventDefault(); routeApi.onStart(searchApi); });
   els.btnStop          && els.btnStop.addEventListener('click',   (e)=>{ e.preventDefault(); routeApi.onStop(); });
   els.btnFollowToggle  && els.btnFollowToggle.addEventListener('click', (e)=>{ e.preventDefault(); routeApi.onFollowToggle(); });
-  els.btnRecenter      && els.btnRecenter.addEventListener('click', ()=> toast('中心に戻しました'));
 
-  // ☆ 現在の目的地を登録
+  // ▼ 再中心：実際に地図を現在地へセンタリング（元は toast のみだった箇所）
+  els.btnRecenter && els.btnRecenter.addEventListener('click', async (e)=>{
+    e.preventDefault();
+    try{
+      if (typeof mapCtrl?.recenterToHere === 'function') {
+        await mapCtrl.recenterToHere();
+      } else if (typeof mapCtrl?.getHereLngLat === 'function') {
+        const [lng, lat] = await mapCtrl.getHereLngLat();
+        mapCtrl?.setCenter?.(lng, lat);
+      } else {
+        // フォールバック：ブラウザのGeolocationでセンタリング
+        const here = await new Promise((resolve)=>{
+          if (!('geolocation' in navigator)) return resolve([139.767, 35.681]);
+          navigator.geolocation.getCurrentPosition(
+            (pos)=> resolve([pos.coords.longitude, pos.coords.latitude]),
+            ()=> resolve([139.767, 35.681]),
+            { enableHighAccuracy: true, timeout: 5000 }
+          );
+        });
+        const [lng, lat] = here;
+        mapCtrl?.setCenter?.(lng, lat);
+      }
+      toast('中心に戻しました');
+    }catch(err){
+      console.error(err);
+      toast('中心に戻れなかったにゃ');
+    }
+  });
+
+  // ☆ 現在の目的地を登録（元の実装を維持）
   if (els.btnFavCurrent){
     els.btnFavCurrent.addEventListener('click', (e)=>{
       e.preventDefault();
@@ -69,7 +97,7 @@ export function bindUI(mapCtrl, navCtrl){
 
   renderQuickLists();
 
-  // ===== クリック委譲（capture） =====
+  // ===== クリック委譲（capture） =====（元の実装をそのまま維持）
   function findGoButton(target){
     if (!(target instanceof Element)) return null;
     return target.closest('[data-action="start"], .fav-go, .js-go, .go, .play') ||
@@ -89,7 +117,7 @@ export function bindUI(mapCtrl, navCtrl){
     // 候補カード内→委譲は何もしない（1タップ即決の pointerdown を優先）
     if (t && t.closest('#searchList')) return;
 
-    // ★▶開始は「お気に入り/履歴リスト内」に限定
+    // ▶開始は「お気に入り/履歴リスト内」に限定（元のロジックを維持）
     const listRoot = t && t.closest('#favorites-list, #history-list');
     const goBtn = listRoot && findGoButton(t);
     if (listRoot && goBtn) {
@@ -123,7 +151,7 @@ export function bindUI(mapCtrl, navCtrl){
     if (q('#btnFavCurrent'))    { e.preventDefault(); Promise.resolve(searchApi.onFavCurrent()).then(()=>renderQuickLists()); return; }
   }, { capture: true });
 
-  // 候補カード：外側タップで閉じる
+  // 候補カード：外側タップで閉じる（元の実装を維持）
   document.addEventListener('pointerdown', (e) => {
     const open = !!els.searchCard && els.searchCard.style.display !== 'none';
     if (!open) return;

@@ -29,17 +29,14 @@ export function setupStartStop(els, navCtrl, hooks){
     return [lng, lat];
   }
 
-  // ★修正ポイント：search側の選択を最優先し、stop時の残りキャッシュで誤開始しないようにする
+  // 検索で選んだ最新の目的地を最優先。キャッシュは次点。最後の手段でテキストをジオコーディング
   async function ensureGoal(searchApi){
-    // prefer the latest selection from search module
     if (searchApi?.state?.goalLngLat) {
       state.goalLngLat = searchApi.state.goalLngLat;
       return state.goalLngLat;
     }
-    // fall back to cached one (e.g., ▶からの起動など)
     if (state.goalLngLat) return state.goalLngLat;
 
-    // lastly, geocode from the text box
     const q = (els.addr?.value || '').trim();
     if (!q) return null;
     const ll = await geocode(q);
@@ -93,8 +90,9 @@ export function setupStartStop(els, navCtrl, hooks){
     try { navCtrl.stop?.(); } catch {}
     if (state._offProgress) { try { state._offProgress(); } catch {} state._offProgress = null; }
 
-    // ★修正ポイント：停止時に目的地キャッシュを必ず消す（次回の誤開始防止）
+    // 停止時に目的地キャッシュを必ず消し、追従もOFF（勝手に戻る/前回目的地に行くのを防止）
     state.goalLngLat = null;
+    try { navCtrl.setFollowEnabled?.(false); } catch {}
 
     if (manEl) manEl.style.display = 'none';
     if (els.btnFollowToggle) els.btnFollowToggle.style.display = 'none';
