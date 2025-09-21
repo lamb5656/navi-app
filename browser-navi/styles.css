@@ -230,3 +230,25 @@ button.btn-choose{
   -webkit-appearance: none;
   appearance: none;
 }
+
+/* === Recenter FAB === */
+.fab{
+  position: fixed;
+  right: 16px;
+  bottom: calc(var(--map-bottom) + 16px); /* HUDとかぶらないように */
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+  z-index: 120; /* map(1)より前、HUD(固定)と共存 */
+  cursor: pointer;
+  user-select: none;
+  transition: transform .05s ease, box-shadow .15s ease, background .15s ease;
+}
+.fab:hover{ background: rgba(148,163,184,.08); }
+.fab:active{ transform: translateY(1px); }
+:root[data-theme="dark"] .fab{ background:#0f172a; border-color:#1f2937; }
