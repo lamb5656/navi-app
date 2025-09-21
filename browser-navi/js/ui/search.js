@@ -1,6 +1,45 @@
 import { API_BASE } from '../../config.js';
 import { $, forceOpen, forceClose, toast } from './dom.js';
 
+/* -------------------- helpers -------------------- */
+
+// Normalize Japanese address: zenkaku->hankaku, hyphen unification, gentle "chome" insertion.
+function normalizeJaAddress(input) {
+  if (!input) return '';
+  // zenkaku -> hankaku (numbers/letters)
+  const z2h = s =>
+    s.replace(/[０-９Ａ-Ｚａ-ｚ]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0));
+  let q = z2h(input).trim();
+
+  // unify hyphens and collapse spaces
+  q = q.replace(/[ー―－‐−]/g, '-').replace(/\s+/g, ' ');
+
+  // If pattern like "...市|...区|...町" followed by numbers-hyphen, insert "丁目"
+  // e.g. "旭町5-28-1" -> "旭町5丁目 28-1"
+  // Keep it conservative: only when first numeric block is directly after area token.
+  q = q.replace(/(?<=市|区|町)(\d+)-/u, (_m, n) => `${n}丁目-`);
+  // Handle space variants: "...町5 28-1" -> "...町5丁目 28-1"
+  q = q.replace(/(?<=市|区|町)\s*(\d+)\s+(?=\d)/u, (_m, n) => `${n}丁目 `);
+
+  return q;
+}
+
+// Simple fetch with timeout, returning { ok, status, data }
+async function fetchJson(url, opt = {}, timeoutMs = 8000) {
+  const ctrl = new AbortController();
+  const id = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const r = await fetch(url, { signal: ctrl.signal, ...opt });
+    if (!r.ok) return { ok: false, status: r.status, data: null };
+    const data = await r.json().catch(() => null);
+    return { ok: true, status: r.status, data };
+  } catch {
+    return { ok: false, status: 0, data: null };
+  } finally {
+    clearTimeout(id);
+  }
+}
+
 function formatJapaneseAddress(a = {}, fallback = '') {
   const pref = a.state || a.province || a.prefecture || '';
   const city = a.city || a.town || a.village || '';
@@ -14,64 +53,103 @@ function formatJapaneseAddress(a = {}, fallback = '') {
   const s = [line1, line2].filter(Boolean).join(' ');
   return s || fallback;
 }
+
 function distanceKm([lng1, lat1], [lng2, lat2]) {
-  const R=6371, toRad=(d)=>d*Math.PI/180;
-  const dLat=toRad(lat2-lat1), dLng=toRad(lng2-lng1);
-  const a=Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLng/2)**2;
-  return 2*R*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-}
-function scoreForResult(item){
-  const t = (item.addresstype || item.type || '').toLowerCase();
-  const cat = (item.category || '').toLowerCase();
-  const isAddress = ['house','residential','yes','building','postcode','block','neighbourhood'].includes(t) || cat==='place';
-  const isRoad = t==='road' || cat==='highway';
-  return isAddress ? 100 : (isRoad ? 80 : 60);
+  const R = 6371, toRad = (d) => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1), dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-// ▼ これで置き換え
-async function searchNominatim(q, nearLngLat) {
+function scoreForResult(item) {
+  const t = (item.addresstype || item.type || '').toLowerCase();
+  const cat = (item.category || '').toLowerCase();
+  const isAddress = ['house', 'residential', 'yes', 'building', 'railway', 'highway'].some(x => t.includes(x) || cat.includes(x));
+  return (isAddress ? 100 : 0) + (item.importance ? item.importance * 10 : 0);
+}
+
+// Accept FeatureCollection/array/object and normalize to array-ish list
+function toArray(data) {
+  if (Array.isArray(data)) return data;
+  if (data && Array.isArray(data.features)) return data.features;
+  if (data && Array.isArray(data.results)) return data.results;
+  return [];
+}
+
+/* -------------------- geocoding core -------------------- */
+
+async function searchNominatim(rawInput, nearLngLat) {
+  // Normalize input for JP addresses
+  const q = normalizeJaAddress(rawInput);
+
   const base = new URLSearchParams();
-  base.set('text', q);         // Workers 側で Nominatim の q に橋渡し
+  base.set('text', q);
   base.set('limit', '15');
   base.set('lang', 'ja');
   base.set('country', 'jp');
   base.set('addr', '1');
 
-  // 住所っぽいか（数字や丁目が含まれる？）
-  const looksAddress = /[0-9０-９\-ー−‐]|丁目|番地|号/.test(q);
+  const looksAddress = /[0-9\-]|丁目|番地|号/.test(q);
 
-  // 1) まず全国フリー検索（バイアスを付けない）
-  let params1 = new URLSearchParams(base);
-  let r = await fetch(`${API_BASE}/geocode?${params1.toString()}`);
-  let json = r.ok ? await r.json() : [];
-  let arr = Array.isArray(json) ? json : (json?.results || json?.features || []);
+  // 1) proxy free search
+  let { ok, status, data } = await fetchJson(`${API_BASE}/geocode?${base.toString()}`);
+  let arr = toArray(data);
 
-  // 2) 0件なら近傍バイアス付きで再検索（地図中心がある場合のみ）
+  // 2) bias by center if empty
   if ((!arr || !arr.length) && nearLngLat && Number.isFinite(nearLngLat[0]) && Number.isFinite(nearLngLat[1])) {
-    const params2 = new URLSearchParams(base);
-    params2.set('ll', `${nearLngLat[0]},${nearLngLat[1]}`);
-    params2.set('bias', '1'); // Workers が viewbox+bounded=1 を付与
-    r = await fetch(`${API_BASE}/geocode?${params2.toString()}`);
-    json = r.ok ? await r.json() : [];
-    arr = Array.isArray(json) ? json : (json?.results || json?.features || []);
+    const p2 = new URLSearchParams(base);
+    p2.set('ll', `${nearLngLat[0]},${nearLngLat[1]}`);
+    p2.set('bias', '1');
+    ({ ok, status, data } = await fetchJson(`${API_BASE}/geocode?${p2.toString()}`));
+    arr = toArray(data);
   }
 
-  // 3) まだ0件 かつ 住所っぽい入力のときは structured=1 で再検索（番地に強い）
+  // 3) structured for address-like input
   if ((!arr || !arr.length) && looksAddress) {
-    const params3 = new URLSearchParams(base);
+    const p3 = new URLSearchParams(base);
+    p3.set('structured', '1');
     if (nearLngLat && Number.isFinite(nearLngLat[0]) && Number.isFinite(nearLngLat[1])) {
-      params3.set('ll', `${nearLngLat[0]},${nearLngLat[1]}`); // スコア付け用に渡すだけ
+      p3.set('ll', `${nearLngLat[0]},${nearLngLat[1]}`); // hint only
     }
-    params3.set('structured', '1');
-    r = await fetch(`${API_BASE}/geocode?${params3.toString()}`);
-    json = r.ok ? await r.json() : [];
-    arr = Array.isArray(json) ? json : (json?.results || json?.features || []);
+    ({ ok, status, data } = await fetchJson(`${API_BASE}/geocode?${p3.toString()}`));
+    arr = toArray(data);
+  }
+
+  // 4) FINAL BACKUP: public Nominatim if still empty
+  if (!arr || !arr.length) {
+    const qParams = new URLSearchParams();
+    qParams.set('q', q);
+    qParams.set('format', 'jsonv2');
+    qParams.set('limit', '15');
+    qParams.set('addressdetails', '1');
+    qParams.set('accept-language', 'ja');
+    qParams.set('countrycodes', 'jp');
+    if (nearLngLat && Number.isFinite(nearLngLat[0]) && Number.isFinite(nearLngLat[1])) {
+      const [lng, lat] = nearLngLat;
+      const box = 0.5; // ~50km
+      qParams.set('viewbox', `${lng - box},${lat + box},${lng + box},${lat - box}`);
+      qParams.set('bounded', '0');
+    }
+    const res = await fetchJson(`https://nominatim.openstreetmap.org/search?${qParams.toString()}`);
+    if (res.ok && Array.isArray(res.data)) {
+      arr = res.data.map(r => ({
+        lat: r.lat, lon: r.lon,
+        display_name: r.display_name,
+        address: r.address || {},
+        addresstype: r.addresstype || r.type || '',
+        category: r.category || '',
+        type: r.type || '',
+        importance: r.importance || 0
+      }));
+    }
   }
 
   return arr || [];
 }
 
-export function setupSearch(els, mapCtrl){
+/* -------------------- UI binding -------------------- */
+
+export function setupSearch(els, mapCtrl) {
   const state = { goalLngLat: null, nearLngLat: null };
 
   function getCenter() {
@@ -82,7 +160,7 @@ export function setupSearch(els, mapCtrl){
     return null;
   }
 
-  async function onSearch(){
+  async function onSearch() {
     const input = els.addr?.value?.trim();
     if (!input) { toast('住所や施設名を入力してください'); return; }
     forceOpen(els.searchCard);
@@ -90,7 +168,7 @@ export function setupSearch(els, mapCtrl){
 
     let results = [];
     try { results = await searchNominatim(input, state.nearLngLat); }
-    catch(e){ console.warn('geocode error', e); toast('検索に失敗しました'); return; }
+    catch (e) { console.warn('geocode error', e); toast('検索に失敗しました'); return; }
 
     const list = (results || []).map(r => {
       const lat = Number(r.lat ?? r.y ?? r.geometry?.coordinates?.[1]);
@@ -99,50 +177,68 @@ export function setupSearch(els, mapCtrl){
       const cand = { name, lat, lng, raw: r, score: scoreForResult(r) };
       if (state.nearLngLat && Number.isFinite(lat) && Number.isFinite(lng)) {
         cand.__distanceKm = distanceKm(state.nearLngLat, [lng, lat]);
-        cand.score += Math.max(0, 30 - Math.min(30, cand.__distanceKm));
       }
       return cand;
-    }).filter(c => c.name && Number.isFinite(c.lat) && Number.isFinite(c.lng));
+    }).filter(x => Number.isFinite(x.lat) && Number.isFinite(x.lng));
 
-    // 座標重複の除去（≈10cm）
-    const seen = new Set();
-    const deduped = list.filter(c => {
-      const key = `${c.lng.toFixed(6)},${c.lat.toFixed(6)}`;
-      if (seen.has(key)) return false; seen.add(key); return true;
-    }).sort((a,b)=>b.score-a.score).slice(0,15);
+    // sort: better score, then closer
+    list.sort((a, b) => (b.score - a.score) || ((a.__distanceKm || 0) - (b.__distanceKm || 0)));
 
-    renderCandidates(deduped);
+    renderList(list);
   }
 
-  function renderCandidates(list){
-    const ul = els.searchList; if (!ul) return;
+  function renderList(items) {
+    const ul = els.searchList;
     ul.innerHTML = '';
-    if (!list.length) { ul.innerHTML = '<li class="empty">候補が見つかりません。地名から徐々に細かく入れてみて</li>'; return; }
-
-    for (const c of list) {
+    if (!items || !items.length) {
       const li = document.createElement('li');
-      li.className = 'cand';
-      li.innerHTML = `
-        <div class="cand-title">${c.name}</div>
-        ${typeof c.__distanceKm === 'number' ? `<div class="cand-sub">${c.__distanceKm.toFixed(1)} km 以内</div>` : ''}
-      `;
-      // ★ 1タップ即決＆即クローズ（pointerdown/capture）
-      li.addEventListener('pointerdown', (e) => {
-        e.preventDefault();
-        state.goalLngLat = [c.lng, c.lat];
-        if (els.addr) els.addr.value = c.name;
-        forceClose(els.searchCard);
-        toast('目的地をセットしたにゃ');
+      li.textContent = '候補が見つかりませんでした';
+      ul.appendChild(li);
+      return;
+    }
+    for (const it of items) {
+      const li = document.createElement('li');
+      li.className = 'search-item';
+      const line1 = document.createElement('div');
+      line1.className = 'addr-line1';
+      line1.textContent = it.name || '(no name)';
+
+      const line2 = document.createElement('div');
+      line2.className = 'addr-line2';
+      const btn = document.createElement('button');
+      btn.className = 'btn-choose';
+      btn.textContent = 'ここに行く';
+      if (Number.isFinite(it.__distanceKm)) {
+        const span = document.createElement('span');
+        span.className = 'meta';
+        span.textContent = ` / ${it.__distanceKm.toFixed(1)}km`;
+        line2.appendChild(span);
+      }
+      line2.appendChild(btn);
+
+      li.appendChild(line1);
+      li.appendChild(line2);
+
+      li.addEventListener('click', (ev) => {
+        if (ev.target.tagName === 'BUTTON' || ev.currentTarget === li) {
+          const { lat, lng } = it;
+          els.addr.value = it.name;
+          state.goalLngLat = [lng, lat];
+          try { mapCtrl?.setGoal?.(lng, lat); } catch {}
+          forceClose(els.searchCard);
+          toast('目的地をセットしました');
+        }
       }, { capture: true });
+
       ul.appendChild(li);
     }
   }
 
-  async function onFavCurrent(){
+  async function onFavCurrent() {
     if (!state.goalLngLat || !els.addr?.value) { toast('まず目的地を検索してください'); return; }
     const [lng, lat] = state.goalLngLat;
     window.__lastSelectedGoal = { name: els.addr.value, lng, lat };
-    toast('現在の目的地を☆登録したにゃ（メニュー→お気に入り）');
+    toast('現在の目的地をお気に入りに登録しました（メニュー→お気に入り）');
   }
 
   return { onSearch, onFavCurrent, state };
