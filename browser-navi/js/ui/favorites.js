@@ -24,8 +24,8 @@ export function toggleFavorite(item) {
   const favs = loadFavorites();
   const t = normalizePlace(item);
   const idx = favs.findIndex(f => f.id === t.id);
-  if (idx >= 0) { favs.splice(idx, 1); toast('お気に入りから削除したにゃ'); }
-  else          { favs.unshift(t);     toast('お気に入りに追加したにゃ'); }
+  if (idx >= 0) { favs.splice(idx, 1); toast('お気に入りから削除しました'); }
+  else          { favs.unshift(t);     toast('お気に入りに追加しました'); }
   saveFavorites(favs);
 }
 

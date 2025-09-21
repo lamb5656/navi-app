@@ -62,10 +62,10 @@ export function bindUI(mapCtrl, navCtrl){
     e.preventDefault();
     try{
       await routeApi.centerLikeStart(mapCtrl);
-      toast('現在地に戻して追従をONにしたにゃ');
+      toast('現在地に戻して追従をONにしました');
     }catch(err){
       console.error(err);
-      toast('現在地に戻れなかったにゃ');
+      toast('現在地に戻れませんでした');
     }
   });
 
@@ -123,7 +123,7 @@ export function bindUI(mapCtrl, navCtrl){
         if (searchApi?.state) searchApi.state.goalLngLat = [lng, lat];
         Promise.resolve(routeApi.onStart(searchApi)).catch(()=>{});
       } else {
-        toast('この項目に座標が無いみたいにゃ');
+        toast('この項目に座標が無いみたいです');
       }
       return;
     }
