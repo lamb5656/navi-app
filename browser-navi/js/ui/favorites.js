@@ -1,76 +1,45 @@
-// お気に入り/履歴のレンダリング＋操作ユーティリティ（settings.js 現行API対応版）
+// お気に入り/履歴（settings.js 現行API対応）
 import { toast } from './dom.js';
 import {
-  StorageKeys,        // { FAVORITES, HISTORY }
-  loadList, saveList, // listの永続化
-  upsertPlace,        // 距離マージ付きの履歴追加
-  trimMax,            // 最大件数カット
-  makePlaceId         // 安定ID作成（lat/lngを丸め）
+  StorageKeys, loadList, saveList, upsertPlace, trimMax, makePlaceId
 } from '../settings.js';
-
-// ---- モデル -------------------------------------------------
 
 function loadFavorites() { return loadList(StorageKeys.FAVORITES) || []; }
 function loadHistory()   { return loadList(StorageKeys.HISTORY)   || []; }
+function saveFavorites(a){ saveList(StorageKeys.FAVORITES, a); }
+function saveHistory(a)  { saveList(StorageKeys.HISTORY,   a); }
 
-function saveFavorites(arr) { saveList(StorageKeys.FAVORITES, arr); }
-function saveHistory(arr)   { saveList(StorageKeys.HISTORY,   arr); }
-
-// place: { name, lat, lng, id?, ts? }
 function normalizePlace(p) {
   const lat = Number(p.lat), lng = Number(p.lng);
-  return {
-    id: p.id || makePlaceId(lat, lng),
-    name: p.name || '目的地',
-    lat, lng,
-    ts: p.ts || Date.now()
-  };
+  return { id: p.id || makePlaceId(lat, lng), name: p.name || '目的地', lat, lng, ts: p.ts || Date.now() };
 }
-
-// ---- 判定／更新 -------------------------------------------------
 
 export function isFavorite(item) {
   const favs = loadFavorites();
-  const target = normalizePlace(item);
-  return favs.some(f => f.id === target.id);
+  const t = normalizePlace(item);
+  return favs.some(f => f.id === t.id);
 }
 
 export function toggleFavorite(item) {
   const favs = loadFavorites();
-  const target = normalizePlace(item);
-  const idx = favs.findIndex(f => f.id === target.id);
-
-  if (idx >= 0) {
-    favs.splice(idx, 1);
-    toast('お気に入りから削除したにゃ');
-  } else {
-    favs.unshift(target);
-    toast('お気に入りに追加したにゃ');
-  }
+  const t = normalizePlace(item);
+  const idx = favs.findIndex(f => f.id === t.id);
+  if (idx >= 0) { favs.splice(idx, 1); toast('お気に入りから削除したにゃ'); }
+  else          { favs.unshift(t);     toast('お気に入りに追加したにゃ'); }
   saveFavorites(favs);
 }
 
-export function addHistory(item){
+export function addHistory(item) {
+  // 完全重複（id or name+lng+lat）は1件に
   const hist = loadHistory();
   const p = normalizePlace(item);
-
-  // 1) 既存と完全一致（id or name+lng+lat）を除去
-  const filtered = hist.filter(h => !(h.id === p.id || (h.name === p.name && h.lng === p.lng && h.lat === p.lat)));
-
-  // 2) 先頭に追加
-  filtered.unshift(p);
-
-  // 3) 上限（30件など）を適用
-  // settings.js の trimMax があるなら使ってOK。ここでは固定で安全運用。
-  if (filtered.length > 30) filtered.length = 30;
-
-  saveHistory(filtered);
+  const merged = hist.filter(h => !(h.id === p.id || (h.name === p.name && h.lng === p.lng && h.lat === p.lat)));
+  merged.unshift(p);
+  trimMax(merged, 30);
+  saveHistory(merged);
 }
 
-
-// ---- レンダリング -------------------------------------------------
-
-function renderList(container, items, opt = {}){
+function renderList(container, items, opt = {}) {
   if (!container) return;
   container.innerHTML = '';
   if (!Array.isArray(items) || !items.length) {
@@ -85,72 +54,47 @@ function renderList(container, items, opt = {}){
     li.dataset.lng = String(it.lng);
     li.dataset.lat = String(it.lat);
 
-    // ---- 1行目：住所フル表示（折り返し許可） ----
+    // 1行目：住所フル
     const name = document.createElement('div');
     name.className = 'poi-name';
     name.textContent = it.name || '(名称未設定)';
 
-    // ---- 2行目：ボタン行 ----
+    // 2行目：ボタン群
     const actions = document.createElement('div');
     actions.className = 'poi-actions';
 
-    // ▶ 開始
     const go = document.createElement('button');
-    go.className = 'fav-go';
-    go.dataset.action = 'start';
+    go.className = 'fav-go'; go.dataset.action = 'start';
     go.setAttribute('aria-label', 'start');
-    go.title = 'この目的地で開始';
-    go.textContent = '▶';
+    go.title = 'この目的地で開始'; go.textContent = '▶';
 
-    // ☆/★ トグル
     const star = document.createElement('button');
-    star.className = 'fav-star';
-    star.title = 'お気に入りに追加/削除';
+    star.className = 'fav-star'; star.title = 'お気に入りに追加/削除';
     star.textContent = opt.type === 'favorites' ? '★' : '☆';
-    star.addEventListener('click', (e) => {
-      e.preventDefault(); e.stopPropagation();
-      toggleFavorite(it);
-      renderQuickLists();
-    });
+    star.addEventListener('click', (e)=>{ e.preventDefault(); e.stopPropagation(); toggleFavorite(it); renderQuickLists(); });
 
-    // 🗑 削除
     const del = document.createElement('button');
-    del.className = 'fav-del';
-    del.title = 'この項目を削除';
-    del.textContent = '🗑';
-    del.addEventListener('click', (e) => {
+    del.className = 'fav-del'; del.title = 'この項目を削除'; del.textContent = '🗑';
+    del.addEventListener('click', (e)=> {
       e.preventDefault(); e.stopPropagation();
       if (opt.type === 'favorites') {
-        const favs = loadFavorites();
-        const i = favs.findIndex(f => f.id === it.id);
-        if (i >= 0) { favs.splice(i, 1); saveFavorites(favs); }
-      } else if (opt.type === 'history') {
-        const hist = loadHistory();
-        const i = hist.findIndex(h => h.id === it.id);
-        if (i >= 0) { hist.splice(i, 1); saveHistory(hist); }
+        const favs = loadFavorites(); const i = favs.findIndex(f=>f.id===it.id);
+        if (i>=0){ favs.splice(i,1); saveFavorites(favs); }
+      } else {
+        const hist = loadHistory(); const i = hist.findIndex(h=>h.id===it.id);
+        if (i>=0){ hist.splice(i,1); saveHistory(hist); }
       }
       renderQuickLists();
     });
 
-    actions.appendChild(go);
-    actions.appendChild(star);
-    actions.appendChild(del);
-
-    li.appendChild(name);
-    li.appendChild(actions);
+    actions.appendChild(go); actions.appendChild(star); actions.appendChild(del);
+    li.appendChild(name); li.appendChild(actions);
     container.appendChild(li);
   }
 }
 
-
-export function renderQuickLists() {
-  const els = {
-    fav: document.getElementById('favorites-list'),
-    his: document.getElementById('history-list'),
-  };
-  const favs = loadFavorites();
-  const hist = loadHistory();
-
-  renderList(els.fav, favs, { type: 'favorites' });
-  renderList(els.his, hist, { type: 'history' });
+export function renderQuickLists(){
+  const els = { fav: document.getElementById('favorites-list'), his: document.getElementById('history-list') };
+  renderList(els.fav, loadFavorites(), { type: 'favorites' });
+  renderList(els.his, loadHistory(),   { type: 'history' });
 }

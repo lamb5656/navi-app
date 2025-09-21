@@ -1,9 +1,9 @@
-// Lightweight HUD updater for distance/eta/status (IDs: remainKm, eta, status)
+// HUD updater for IDs: remainKm, eta, status
 const get = (id) => document.getElementById(id);
 
 function formatDistanceKm(m) {
   if (!Number.isFinite(m) || m < 0) return '–';
-  return (Math.max(m, 0) / 1000).toFixed(1); // km, 1 decimal
+  return (Math.max(m, 0) / 1000).toFixed(1);
 }
 function formatEta(v) {
   if (!v) return '–:–';
@@ -15,13 +15,8 @@ function formatEta(v) {
 }
 
 export function createHUD() {
-  const els = {
-    distanceKm: get('remainKm'),
-    eta:        get('eta'),
-    status:     get('status'),
-  };
+  const els = { distanceKm: get('remainKm'), eta: get('eta'), status: get('status') };
   function update(data = {}) {
-    // data: { distanceLeftMeters?, eta?, status? }
     if (els.distanceKm) els.distanceKm.textContent = formatDistanceKm(data.distanceLeftMeters);
     if (els.eta)        els.eta.textContent        = formatEta(data.eta);
     if (els.status && typeof data.status === 'string') els.status.textContent = data.status;

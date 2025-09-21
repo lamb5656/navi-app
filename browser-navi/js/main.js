@@ -14,16 +14,13 @@ if ('serviceWorker' in navigator) {
   try {
     await ensureMaplibre();
 
-    // 1) Map
     const mapCtrl = new MapController();
     if (typeof mapCtrl.init === 'function') {
       await mapCtrl.init();
     }
 
-    // 2) Navigation
     const navCtrl = new NavigationController(mapCtrl);
 
-    // 3) Bind UI after DOM ready
     const ready = (fn) => {
       if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', fn, { once: true });
@@ -34,7 +31,7 @@ if ('serviceWorker' in navigator) {
     ready(() => {
       try {
         bindUI(mapCtrl, navCtrl);
-        // ★ HUD/デバッグ用に window に公開（これが無いと UI から見えない）
+        // ★ HUD/デバッグ用に window に公開
         window.mapCtrl = mapCtrl;
         window.navCtrl = navCtrl;
         console.log('[SVN] UI bound & controllers exposed on window');
@@ -43,7 +40,7 @@ if ('serviceWorker' in navigator) {
       }
     });
 
-    // 初回位置（表示だけ。追従は開始後に切り替え）
+    // 初期位置を一度取得（表示だけ）
     if ('geolocation' in navigator && typeof navCtrl.setHereInitial === 'function') {
       navigator.geolocation.getCurrentPosition(
         (pos) => {

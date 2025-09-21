@@ -176,3 +176,27 @@ html:has(#btnStop:not([disabled])) .toolbar{ display:none; }
 .fav-go:hover, .fav-star:hover, .fav-del:hover {
   background: var(--btn-bg-hover, rgba(0,0,0,0.06));
 }
+
+/* === Quick Lists (favorites/history) 2行レイアウト === */
+#favorites-list, #history-list { list-style: none; margin: 0; padding: 0; }
+#favorites-list li.poi, #history-list li.poi {
+  display: block;
+  padding: .55rem .6rem;
+  border-radius: .6rem;
+}
+#favorites-list li.poi + li.poi, #history-list li.poi + li.poi { margin-top: .25rem; }
+#favorites-list li.poi:hover, #history-list li.poi:hover { background: var(--surface-2, rgba(0,0,0,0.04)); }
+
+/* 1行目：住所はフル表示（折り返しOK） */
+.poi-name { font-size: .95rem; line-height: 1.35; margin: 0 0 .35rem 0; white-space: normal; word-break: break-word; }
+
+/* 2行目：ボタン行 */
+.poi-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+
+/* 小さめ角丸ボタン */
+.fav-go, .fav-star, .fav-del {
+  appearance: none; border: 1px solid var(--border, rgba(0,0,0,0.2)); background: var(--btn-bg, #fff);
+  padding: .28rem .6rem; min-width: 2.1rem; line-height: 1.2; border-radius: .45rem; cursor: pointer; font-size: .95rem;
+}
+.fav-go { font-weight: 700; }
+.fav-go:hover, .fav-star:hover, .fav-del:hover { background: var(--btn-bg-hover, rgba(0,0,0,0.06)); }
