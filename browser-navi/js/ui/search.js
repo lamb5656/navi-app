@@ -6,21 +6,11 @@ import { $, forceOpen, forceClose, toast } from './dom.js';
 // Normalize Japanese address: zenkaku->hankaku, hyphen unification, gentle "chome" insertion.
 function normalizeJaAddress(input) {
   if (!input) return '';
-  // zenkaku -> hankaku (numbers/letters)
-  const z2h = s =>
-    s.replace(/[０-９Ａ-Ｚａ-ｚ]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0));
+  const z2h = s => s.replace(/[０-９Ａ-Ｚａ-ｚ]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0));
   let q = z2h(input).trim();
-
-  // unify hyphens and collapse spaces
   q = q.replace(/[ー―－‐−]/g, '-').replace(/\s+/g, ' ');
-
-  // If pattern like "...市|...区|...町" followed by numbers-hyphen, insert "丁目"
-  // e.g. "旭町5-28-1" -> "旭町5丁目 28-1"
-  // Keep it conservative: only when first numeric block is directly after area token.
   q = q.replace(/(?<=市|区|町)(\d+)-/u, (_m, n) => `${n}丁目-`);
-  // Handle space variants: "...町5 28-1" -> "...町5丁目 28-1"
   q = q.replace(/(?<=市|区|町)\s*(\d+)\s+(?=\d)/u, (_m, n) => `${n}丁目 `);
-
   return q;
 }
 
@@ -43,9 +33,9 @@ async function fetchJson(url, opt = {}, timeoutMs = 8000) {
 function formatJapaneseAddress(a = {}, fallback = '') {
   const pref = a.state || a.province || a.prefecture || '';
   const city = a.city || a.town || a.village || '';
-  const ward = a.ward || a.district || a.county || '';
-  const block = a.suburb || a.neighbourhood || a.quarter || '';
-  const road = a.road || a.footway || '';
+  const ward = a.ward || a.district || a.county || a.city_district || '';
+  const block = a.suburb || a.neighbourhood || a.quarter || a.district || a.hamlet || '';
+  const road = a.road || a.pedestrian || a.footway || '';
   const house = a.house_number || '';
   const poi = a.public_building || a.school || a.hospital || a.amenity || a.building || a.shop || a.attraction || '';
   const line1 = [pref, city, ward, block, road].filter(Boolean).join('');
@@ -64,7 +54,8 @@ function distanceKm([lng1, lat1], [lng2, lat2]) {
 function scoreForResult(item) {
   const t = (item.addresstype || item.type || '').toLowerCase();
   const cat = (item.category || '').toLowerCase();
-  const isAddress = ['house', 'residential', 'yes', 'building', 'railway', 'highway'].some(x => t.includes(x) || cat.includes(x));
+  const isAddress = ['house', 'residential', 'yes', 'building', 'railway', 'highway']
+    .some(x => t.includes(x) || cat.includes(x));
   return (isAddress ? 100 : 0) + (item.importance ? item.importance * 10 : 0);
 }
 
@@ -76,10 +67,41 @@ function toArray(data) {
   return [];
 }
 
+// Extract uniform fields from various Nominatim/proxy shapes
+function extractRecord(r) {
+  // Feature (GeoJSON from proxy)
+  if (r && r.type === 'Feature') {
+    const c = r.geometry && Array.isArray(r.geometry.coordinates) ? r.geometry.coordinates : [NaN, NaN];
+    const p = r.properties || {};
+    return {
+      lat: Number(c[1]),
+      lon: Number(c[0]),
+      address: p.address || {},
+      display_name: p.display_name || '',
+      name: p.name || '',
+      addresstype: p.addresstype || p.type || '',
+      category: p.category || '',
+      type: p.type || '',
+      importance: p.importance || 0
+    };
+  }
+  // Plain nominatim row or already flattened object
+  return {
+    lat: Number(r.lat ?? r.y ?? (r.geometry && r.geometry.coordinates && r.geometry.coordinates[1])),
+    lon: Number(r.lon ?? r.x ?? (r.geometry && r.geometry.coordinates && r.geometry.coordinates[0])),
+    address: r.address || {},
+    display_name: r.display_name || '',
+    name: r.name || '',
+    addresstype: r.addresstype || r.type || '',
+    category: r.category || '',
+    type: r.type || '',
+    importance: r.importance || 0
+  };
+}
+
 /* -------------------- geocoding core -------------------- */
 
 async function searchNominatim(rawInput, nearLngLat) {
-  // Normalize input for JP addresses
   const q = normalizeJaAddress(rawInput);
 
   const base = new URLSearchParams();
@@ -166,14 +188,20 @@ export function setupSearch(els, mapCtrl) {
     forceOpen(els.searchCard);
     state.nearLngLat = getCenter();
 
-    let results = [];
-    try { results = await searchNominatim(input, state.nearLngLat); }
+    let rawResults = [];
+    try { rawResults = await searchNominatim(input, state.nearLngLat); }
     catch (e) { console.warn('geocode error', e); toast('検索に失敗しました'); return; }
 
-    const list = (results || []).map(r => {
-      const lat = Number(r.lat ?? r.y ?? r.geometry?.coordinates?.[1]);
-      const lng = Number(r.lon ?? r.x ?? r.geometry?.coordinates?.[0]);
-      const name = formatJapaneseAddress(r.address || {}, r.display_name || r.name || '');
+    const list = (rawResults || []).map(r0 => {
+      const r = extractRecord(r0); // <-- unify shapes (Feature vs plain)
+      const lat = Number(r.lat);
+      const lng = Number(r.lon);
+      const fallback = r.display_name || r.name || '';
+      let name = formatJapaneseAddress(r.address || {}, fallback).trim();
+      if (!name) name = fallback;
+      if (!name && Number.isFinite(lat) && Number.isFinite(lng)) {
+        name = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+      }
       const cand = { name, lat, lng, raw: r, score: scoreForResult(r) };
       if (state.nearLngLat && Number.isFinite(lat) && Number.isFinite(lng)) {
         cand.__distanceKm = distanceKm(state.nearLngLat, [lng, lat]);
@@ -199,6 +227,7 @@ export function setupSearch(els, mapCtrl) {
     for (const it of items) {
       const li = document.createElement('li');
       li.className = 'search-item';
+
       const line1 = document.createElement('div');
       line1.className = 'addr-line1';
       line1.textContent = it.name || '(no name)';
