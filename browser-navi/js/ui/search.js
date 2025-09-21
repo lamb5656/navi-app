@@ -28,30 +28,47 @@ function scoreForResult(item){
   return isAddress ? 100 : (isRoad ? 80 : 60);
 }
 
+// ▼ これで置き換え
 async function searchNominatim(q, nearLngLat) {
-  const params = new URLSearchParams();
-  params.set('text', q);
-  params.set('limit', '15');
-  params.set('lang', 'ja');
-  params.set('country', 'jp');
-  params.set('addr', '1');
-  if (nearLngLat && Number.isFinite(nearLngLat[0]) && Number.isFinite(nearLngLat[1])) {
-    params.set('ll', `${nearLngLat[0]},${nearLngLat[1]}`);
-    params.set('bias', '1');
-  }
-  let url = `${API_BASE}/geocode?${params.toString()}`;
-  let r = await fetch(url);
-  if (!r.ok) throw new Error('geocode failed');
-  let json = await r.json();
+  const base = new URLSearchParams();
+  base.set('text', q);         // Workers 側で Nominatim の q に橋渡し
+  base.set('limit', '15');
+  base.set('lang', 'ja');
+  base.set('country', 'jp');
+  base.set('addr', '1');
+
+  // 住所っぽいか（数字や丁目が含まれる？）
+  const looksAddress = /[0-9０-９\-ー−‐]|丁目|番地|号/.test(q);
+
+  // 1) まず全国フリー検索（バイアスを付けない）
+  let params1 = new URLSearchParams(base);
+  let r = await fetch(`${API_BASE}/geocode?${params1.toString()}`);
+  let json = r.ok ? await r.json() : [];
   let arr = Array.isArray(json) ? json : (json?.results || json?.features || []);
 
-  // 0件なら structured=1 で再試行（番地に強い）
-  if (!arr.length) {
-    params.set('structured', '1');
-    r = await fetch(`${API_BASE}/geocode?${params.toString()}`);
-    if (r.ok) { json = await r.json(); arr = Array.isArray(json) ? json : (json?.results || json?.features || []); }
+  // 2) 0件なら近傍バイアス付きで再検索（地図中心がある場合のみ）
+  if ((!arr || !arr.length) && nearLngLat && Number.isFinite(nearLngLat[0]) && Number.isFinite(nearLngLat[1])) {
+    const params2 = new URLSearchParams(base);
+    params2.set('ll', `${nearLngLat[0]},${nearLngLat[1]}`);
+    params2.set('bias', '1'); // Workers が viewbox+bounded=1 を付与
+    r = await fetch(`${API_BASE}/geocode?${params2.toString()}`);
+    json = r.ok ? await r.json() : [];
+    arr = Array.isArray(json) ? json : (json?.results || json?.features || []);
   }
-  return arr;
+
+  // 3) まだ0件 かつ 住所っぽい入力のときは structured=1 で再検索（番地に強い）
+  if ((!arr || !arr.length) && looksAddress) {
+    const params3 = new URLSearchParams(base);
+    if (nearLngLat && Number.isFinite(nearLngLat[0]) && Number.isFinite(nearLngLat[1])) {
+      params3.set('ll', `${nearLngLat[0]},${nearLngLat[1]}`); // スコア付け用に渡すだけ
+    }
+    params3.set('structured', '1');
+    r = await fetch(`${API_BASE}/geocode?${params3.toString()}`);
+    json = r.ok ? await r.json() : [];
+    arr = Array.isArray(json) ? json : (json?.results || json?.features || []);
+  }
+
+  return arr || [];
 }
 
 export function setupSearch(els, mapCtrl){
