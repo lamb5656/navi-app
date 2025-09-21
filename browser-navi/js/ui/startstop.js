@@ -3,7 +3,7 @@ import { API_BASE } from '../../config.js';
 import { withBackoff } from '../libs/net.js';
 
 export function setupStartStop(els, navCtrl, hooks){
-  const state = { goalLngLat: null };
+  const state = { goalLngLat: null, _offProgress: null };
 
   // hide maneuver panel until navigation actually starts
   const manEl = document.getElementById('maneuver');
@@ -14,6 +14,7 @@ export function setupStartStop(els, navCtrl, hooks){
     const res = await withBackoff(() => fetch(url, { headers: { Accept: 'application/json' } }), { retries: 1, base: 300 });
     if (!res.ok) throw new Error(`geocode http ${res.status}`);
     const data = await res.json();
+    const featureToLL = (f)=> { const c = f?.geometry?.coordinates; return c && { lon: Number(c[0]), lat: Number(c[1]) }; };
     const first = Array.isArray(data) ? data[0]
       : Array.isArray(data?.results) ? data.results[0]
       : Array.isArray(data?.data) ? data.data[0]
@@ -27,11 +28,18 @@ export function setupStartStop(els, navCtrl, hooks){
     const lat = Number(first.lat ?? first.latitude ?? first.center?.[1]);
     return [lng, lat];
   }
-  const featureToLL = (f)=> { const c = f?.geometry?.coordinates; return c && { lon: Number(c[0]), lat: Number(c[1]) }; };
 
+  // ★修正ポイント：search側の選択を最優先し、stop時の残りキャッシュで誤開始しないようにする
   async function ensureGoal(searchApi){
+    // prefer the latest selection from search module
+    if (searchApi?.state?.goalLngLat) {
+      state.goalLngLat = searchApi.state.goalLngLat;
+      return state.goalLngLat;
+    }
+    // fall back to cached one (e.g., ▶からの起動など)
     if (state.goalLngLat) return state.goalLngLat;
-    if (searchApi?.state?.goalLngLat) return (state.goalLngLat = searchApi.state.goalLngLat);
+
+    // lastly, geocode from the text box
     const q = (els.addr?.value || '').trim();
     if (!q) return null;
     const ll = await geocode(q);
@@ -42,7 +50,7 @@ export function setupStartStop(els, navCtrl, hooks){
   async function resolveHere(){
     if (navCtrl?.hereInitial && Array.isArray(navCtrl.hereInitial)) return navCtrl.hereInitial;
     return new Promise((resolve)=>{
-      if (!('geolocation' in navigator)) return resolve([139.767, 35.681]);
+      if (!('geolocation' in navigator)) return resolve([139.767, 35.681]); // Tokyo fallback
       navigator.geolocation.getCurrentPosition(
         (pos)=>resolve([pos.coords.longitude, pos.coords.latitude]),
         ()=>resolve([139.767, 35.681]),
@@ -76,7 +84,6 @@ export function setupStartStop(els, navCtrl, hooks){
       hooks?.onStarted && hooks.onStarted({ name: (els.addr?.value || '目的地'), lng: Number(goal[0]), lat: Number(goal[1]) });
       hooks?.onTick && hooks.onTick({ status: '案内中' });
 
-      // store cleaner
       state._offProgress = off;
       toast('ナビを開始しました');
     }catch(e){ console.error(e); toast('ナビの開始に失敗しました'); }
@@ -85,6 +92,9 @@ export function setupStartStop(els, navCtrl, hooks){
   function onStop(){
     try { navCtrl.stop?.(); } catch {}
     if (state._offProgress) { try { state._offProgress(); } catch {} state._offProgress = null; }
+
+    // ★修正ポイント：停止時に目的地キャッシュを必ず消す（次回の誤開始防止）
+    state.goalLngLat = null;
 
     if (manEl) manEl.style.display = 'none';
     if (els.btnFollowToggle) els.btnFollowToggle.style.display = 'none';
