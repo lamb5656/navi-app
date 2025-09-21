@@ -57,17 +57,25 @@ export function bindUI(mapCtrl, navCtrl){
   els.btnStop          && els.btnStop.addEventListener('click',   (e)=>{ e.preventDefault(); routeApi.onStop(); });
   els.btnFollowToggle  && els.btnFollowToggle.addEventListener('click', (e)=>{ e.preventDefault(); routeApi.onFollowToggle(); });
 
-  // ★現在地ボタン：ナビ開始と同じ“現在地へ寄せて追従ON”
+  // 現在地ボタン：ナビ開始と同じ“現在地へ寄せて追従ON”
   els.btnRecenter && els.btnRecenter.addEventListener('click', async (e)=>{
     e.preventDefault();
     try{
       await routeApi.centerLikeStart(mapCtrl);
-      toast('現在地に戻して追従をONにしました');
+      toast('現在地に戻して追従をONにしたにゃ');
     }catch(err){
       console.error(err);
-      toast('現在地に戻れませんでした');
+      toast('現在地に戻れなかったにゃ');
     }
   });
+
+  // ☆ ユーザーが地図を触ったら追従OFF（スマホで「ずっと戻される」を止める肝）
+  try {
+    mapCtrl.onUserInteract?.(() => {
+      try { navCtrl.setFollowEnabled(false); } catch {}
+      if (els.btnFollowToggle) els.btnFollowToggle.textContent = '北固定';
+    });
+  } catch {}
 
   // ☆ 現在の目的地を登録（元の実装を維持）
   if (els.btnFavCurrent){
@@ -84,7 +92,7 @@ export function bindUI(mapCtrl, navCtrl){
     if (!(target instanceof Element)) return null;
     return target.closest('[data-action="start"], .fav-go, .js-go, .go, .play') ||
            ([...target.closest('li, div, span, a, button')?.querySelectorAll('button, a')] || [])
-             .find(el => el.textContent?.trim() === '?') || null;
+             .find(el => el.textContent?.trim() === '▶') || null;
   }
   function findItemNode(btn){
     if (!btn) return null;
@@ -115,7 +123,7 @@ export function bindUI(mapCtrl, navCtrl){
         if (searchApi?.state) searchApi.state.goalLngLat = [lng, lat];
         Promise.resolve(routeApi.onStart(searchApi)).catch(()=>{});
       } else {
-        toast('この項目に座標が無いみたいです');
+        toast('この項目に座標が無いみたいにゃ');
       }
       return;
     }

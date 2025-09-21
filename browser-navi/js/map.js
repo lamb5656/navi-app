@@ -62,6 +62,9 @@ export class MapController {
   constructor() {
     this.map = null;
     this.userMarker = null;
+
+    // ☆ 追加：ユーザー操作フック
+    this._onUserInteract = null;
   }
 
   async init(containerId = 'map') {
@@ -74,7 +77,7 @@ export class MapController {
           tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
           tileSize: 256,
           attribution:
-            '息 OpenStreetMap contributors'
+            '© OpenStreetMap contributors'
         }
       },
       layers: [{ id: 'osm', type: 'raster', source: 'osm' }]
@@ -95,8 +98,30 @@ export class MapController {
 
     ensureRouteSource(this.map);
 
+    // ☆ 追加：ユーザーの手動操作を検知してコールバック（スマホの「勝手に戻る」抑制）
+    const fireInteract = () => { try { this._onUserInteract && this._onUserInteract(); } catch {} };
+    // ユーザー起因の操作イベント群（プログラム操作の movestart は拾わない）
+    ['dragstart', 'zoomstart', 'rotatestart', 'pitchstart'].forEach(ev => {
+      this.map.on(ev, fireInteract);
+    });
+    // 一部端末向けの保険（直接のポインタ発火）
+    ['mousedown', 'touchstart', 'wheel'].forEach(ev => {
+      this.map.getCanvas().addEventListener(ev, fireInteract, { passive: true });
+    });
+
     // Register as default controller (first one wins)
     if (!defaultController) defaultController = this;
+  }
+
+  // ☆ 追加：UI から登録できるフック
+  onUserInteract(cb) { this._onUserInteract = typeof cb === 'function' ? cb : null; }
+
+  // ☆ 追加：センター移動のユーティリティ（実装差吸収用）
+  setCenter(lng, lat) {
+    if (!this.map) return;
+    if (typeof this.map.jumpTo === 'function') this.map.jumpTo({ center: [lng, lat] });
+    else if (typeof this.map.setCenter === 'function') this.map.setCenter([lng, lat]);
+    else if (typeof this.map.easeTo === 'function') this.map.easeTo({ center: [lng, lat], duration: 0 });
   }
 
   drawRoute(routeData) {
