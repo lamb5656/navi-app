@@ -108,5 +108,25 @@ export function setupStartStop(els, navCtrl, hooks){
     toast(next ? '追従を有効にしました' : '追従を停止しました');
   }
 
-  return { onStart, onStop, onFollowToggle, state };
+  // ★追加：現在地へ寄せて追従ON（ナビ開始時と同じ“戻って追従”）
+  async function centerLikeStart(mapCtrl){
+    const here = await resolveHere();
+
+    // 地図の中心を現在地へ（maplibre 実装差を吸収するフォールバック）
+    if (typeof mapCtrl?.setCenter === 'function') {
+      mapCtrl.setCenter(here[0], here[1]);
+    } else if (typeof mapCtrl?.flyTo === 'function') {
+      mapCtrl.flyTo([here[0], here[1]]);
+    } else if (typeof mapCtrl?.panTo === 'function') {
+      mapCtrl.panTo([here[0], here[1]]);
+    } else {
+      const m = mapCtrl?.map || mapCtrl?._map || window.__map;
+      if (m?.jumpTo) m.jumpTo({ center: [here[0], here[1]] });
+      else if (m?.setCenter) m.setCenter([here[0], here[1]]);
+    }
+
+    try { navCtrl.setFollowEnabled?.(true); } catch {}
+  }
+
+  return { onStart, onStop, onFollowToggle, centerLikeStart, state };
 }
