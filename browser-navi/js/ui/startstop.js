@@ -86,6 +86,12 @@ export function setupStartStop(els, navCtrl, hooks){
 
       state._offProgress = off;
       toast('ナビを開始しました');
+
+      try {
+        window.TTS?.unlockOnce?.();
+        window.TTS?.speak?.('ナビを開始します');
+      } catch {}
+
     }catch(e){ console.error(e); toast('ナビの開始に失敗しました'); }
   }
 
