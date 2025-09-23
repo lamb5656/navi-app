@@ -1,4 +1,4 @@
-const VERSION = '2025-09-23-01';
+const VERSION = '2025-09-23-02';
 const STATIC_CACHE = `svn-static-${VERSION}`;
 const RUNTIME_CACHE = `svn-runtime-${VERSION}`;
 const TILE_CACHE = `svn-tiles-${VERSION}`;
