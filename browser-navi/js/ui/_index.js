@@ -182,5 +182,5 @@ export function bindUI(mapCtrl, navCtrl){
 
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && els.searchCard) forceClose(els.searchCard); });
 
-  console.log('[SVN] UI boot complete');
+  //console.log('[SVN] UI boot complete');
 }

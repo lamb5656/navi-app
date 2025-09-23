@@ -31,7 +31,7 @@ if ('serviceWorker' in navigator) {
 
         window.mapCtrl = mapCtrl;
         window.navCtrl = navCtrl;
-        console.log('[SVN] UI bound & controllers exposed on window');
+        //console.log('[SVN] UI bound & controllers exposed on window');
       } catch (e) {
         console.error('[SVN] bindUI failed', e);
       }
