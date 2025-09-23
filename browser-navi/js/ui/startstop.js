@@ -5,7 +5,7 @@ import { withBackoff } from '../libs/net.js';
 export function setupStartStop(els, navCtrl, hooks){
   const state = { goalLngLat: null, _offProgress: null };
 
-
+  
   const manEl = document.getElementById('maneuver');
   if (manEl) manEl.style.display = 'none';
 
@@ -29,7 +29,6 @@ export function setupStartStop(els, navCtrl, hooks){
     return [lng, lat];
   }
 
-
   async function ensureGoal(searchApi){
     if (searchApi?.state?.goalLngLat) {
       state.goalLngLat = searchApi.state.goalLngLat;
@@ -47,7 +46,7 @@ export function setupStartStop(els, navCtrl, hooks){
   async function resolveHere(){
     if (navCtrl?.hereInitial && Array.isArray(navCtrl.hereInitial)) return navCtrl.hereInitial;
     return new Promise((resolve)=>{
-      if (!('geolocation' in navigator)) return resolve([139.767, 35.681]);
+      if (!('geolocation' in navigator)) return resolve([139.767, 35.681]); 
       navigator.geolocation.getCurrentPosition(
         (pos)=>resolve([pos.coords.longitude, pos.coords.latitude]),
         ()=>resolve([139.767, 35.681]),
@@ -64,7 +63,7 @@ export function setupStartStop(els, navCtrl, hooks){
       const here = await resolveHere();
       hooks?.onGoalFixed && hooks.onGoalFixed({ name: (els.addr?.value || '目的地'), lng: Number(goal[0]), lat: Number(goal[1]) });
 
-
+      
       const off = navCtrl.onProgress?.((snap)=> hooks?.onTick && hooks.onTick(snap));
 
       await navCtrl.start([here, goal]);
@@ -90,7 +89,6 @@ export function setupStartStop(els, navCtrl, hooks){
     try { navCtrl.stop?.(); } catch {}
     if (state._offProgress) { try { state._offProgress(); } catch {} state._offProgress = null; }
 
-
     state.goalLngLat = null;
     try { navCtrl.setFollowEnabled?.(false); } catch {}
 
@@ -108,10 +106,11 @@ export function setupStartStop(els, navCtrl, hooks){
     toast(next ? '追従を有効にしました' : '追従を停止しました');
   }
 
+  // 現在地へ寄せて追従ON + 強制ズーム（未指定は 17）
   async function centerLikeStart(mapCtrl, opt = {}) {
     const here = await resolveHere();
     const z = Number.isFinite(opt.zoom) ? Number(opt.zoom) : 17;
-
+  
     const m = mapCtrl?.map || mapCtrl?._map || window.__map || null;
     if (m?.easeTo) {
       m.easeTo({ center: [here[0], here[1]], zoom: z, duration: 0 });
@@ -125,9 +124,9 @@ export function setupStartStop(els, navCtrl, hooks){
       mapCtrl.flyTo([here[0], here[1]]);
       if (m?.setZoom) m.setZoom(z);
     }
-
+  
     try { navCtrl.setFollowEnabled?.(true); } catch {}
   }
 
   return { onStart, onStop, onFollowToggle, centerLikeStart, state };
-
+}
