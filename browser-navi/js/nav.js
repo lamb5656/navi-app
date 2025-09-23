@@ -165,9 +165,14 @@ export class NavigationController {
   setFollowEnabled(on){ this.follow = !!on; }
   isFollowEnabled(){ return this.follow; }
 
-  async _fetchORS(payload){
-    const r = await fetch(`${API_BASE}/route`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
-    if (!r.ok) throw new Error('ORS route failed'); return r.json();
+  async _fetchORS(payload) {
+    const r = await fetch(`${API_BASE}/route`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!r.ok) throw new Error('ORS route failed');
+    return r.json();
   }
 
   async start([startLL, goalLL]){
@@ -192,14 +197,13 @@ export class NavigationController {
     }
 
     this.totalM = NaN; this.totalS = NaN;
-      const r0 = data?.routes?.[0];
-      if (r0?.summary?.distance || r0?.segments?.[0]?.distance){
-        this.totalM = Number(r0.summary?.distance ?? r0.segments?.[0]?.distance ?? NaN);
-        this.totalS = Number(r0.summary?.duration ?? r0.segments?.[0]?.duration ?? NaN);
-      } else if (r0?.distance || r0?.duration){
-        this.totalM = Number(r0?.distance ?? NaN);
-        this.totalS = Number(r0?.duration ?? NaN);
-      }
+    const r0 = data?.routes?.[0];
+    if (r0?.summary?.distance || r0?.segments?.[0]?.distance){
+      this.totalM = Number(r0.summary?.distance ?? r0.segments?.[0]?.distance ?? NaN);
+      this.totalS = Number(r0.summary?.duration ?? r0.segments?.[0]?.duration ?? NaN);
+    } else if (r0?.distance || r0?.duration){
+      this.totalM = Number(r0?.distance ?? NaN);
+      this.totalS = Number(r0?.duration ?? NaN);
     }
     if (!(Number.isFinite(this.totalM) && this.totalM>0)){
       const r0 = data?.routes?.[0];
