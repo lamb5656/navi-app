@@ -1,6 +1,5 @@
 import { API_BASE } from '../config.js';
 
-// -------- utils --------
 function nowMs(){ return Date.now(); }
 function toRad(d){ return d*Math.PI/180; }
 function clamp(v,a,b){ return Math.max(a, Math.min(b,v)); }
@@ -9,7 +8,7 @@ function haversineMeters(a,b){
   var R=6371000;
   var dLat=toRad(b.lat-a.lat), dLng=toRad(b.lng-a.lng);
   var la1=toRad(a.lat), la2=toRad(b.lat);
-  var s=Math.sin(dLat/2)**2 + Math.cos(la1)*Math.cos(la2)*Math.sin(dLng/2)**2;
+  var s=Math.sin(dLat/2)*Math.sin(dLat/2) + Math.cos(la1)*Math.cos(la2)*Math.sin(dLng/2)*Math.sin(dLng/2);
   return 2*R*Math.atan2(Math.sqrt(s), Math.sqrt(1-s));
 }
 function lineLengthMeters(coords){
@@ -144,7 +143,6 @@ export class NavigationController {
 
   _applyRoute(coords){
     this.routeCoords = coords||[];
-
     var geo = {
       type:'FeatureCollection',
       features: this.routeCoords.length>1 ? [{ type:'Feature', geometry:{ type:'LineString', coordinates:this.routeCoords }, properties:{} }] : []
@@ -172,7 +170,7 @@ export class NavigationController {
       if(coords && coords.length>1){
         var L=lineLengthMeters(coords);
         if(!isFinite(this.totalM)||!(this.totalM>0)) this.totalM=L;
-        if(!isFinite(this.totalS)||!(this.totalS>0)) this.totalS=(L/(50*1000))*3600; // 50km/h rough
+        if(!isFinite(this.totalS)||!(this.totalS>0)) this.totalS=(L/(50*1000))*3600;
       }
     }
   }
@@ -191,6 +189,7 @@ export class NavigationController {
         var d=haversineMeters({lat:c[1],lng:c[0]}, pos);
         if(d<bestD){ bestD=d; best=i; }
       }
+
       var remain=0;
       for(var j=best;j<self.routeCoords.length-1;j++){
         remain += haversineMeters({lat:self.routeCoords[j][1],lng:self.routeCoords[j][0]}, {lat:self.routeCoords[j+1][1],lng:self.routeCoords[j+1][0]});
@@ -306,6 +305,7 @@ export class NavigationController {
   }
 
   stop(){
+    var wasActive = this.active;
     this.active=false;
     this._stopHud();
     this._stopGeoWatch();
@@ -313,6 +313,6 @@ export class NavigationController {
     this.totalM=NaN; this.totalS=NaN;
     try{ if(this.mapCtrl && typeof this.mapCtrl.clearRoute==='function') this.mapCtrl.clearRoute(); }catch(e){}
     emitHud({ remainMeters:0, remainText:'--', etaText:'--:--', status:'idle' });
-    try{ TTS.speak('案内を終了します'); }catch(e){}
+    try{ if (wasActive) TTS.speak('案内を終了します'); }catch(e){}
   }
 }

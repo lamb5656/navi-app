@@ -1,6 +1,8 @@
 import { toast } from './dom.js';
 import { API_BASE } from '../../config.js';
 
+var __NAV_STARTING__ = false;
+
 async function fetchWithBackoff(factory, opts) {
   var retries = (opts && opts.retries != null) ? opts.retries : 2;
   var base = (opts && opts.base != null) ? opts.base : 300;
@@ -97,6 +99,10 @@ export function setupStartStop(els, navCtrl, hooks) {
   }
 
   async function onStart(searchApi) {
+    if (__NAV_STARTING__) return;
+    __NAV_STARTING__ = true;
+    try { if (els && els.btnStart) els.btnStart.disabled = true; } catch(e){}
+
     try { if (window.TTS && typeof window.TTS.unlockOnce === 'function') window.TTS.unlockOnce(); } catch (e) {}
 
     try {
@@ -159,6 +165,9 @@ export function setupStartStop(els, navCtrl, hooks) {
     } catch (e) {
       console.error(e);
       toast('ナビの開始に失敗しました');
+    } finally {
+      __NAV_STARTING__ = false;
+      try { if (els && els.btnStart) els.btnStart.disabled = false; } catch(e){}
     }
   }
 
