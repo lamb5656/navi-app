@@ -77,6 +77,8 @@ const TTS = (() => {
   return { speak, maybeAnnounceByDistance, unlockOnce };
 })();
 
+try { window.TTS = TTS; } catch {}
+
 const toLL = ([lng, lat]) => ({ lng: Number(lng), lat: Number(lat) });
 function haversine(lat1, lon1, lat2, lon2) {
   const R=6371000, toRad=(d)=>d*Math.PI/180;

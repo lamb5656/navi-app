@@ -51,10 +51,16 @@ export function bindUI(mapCtrl, navCtrl){
 
   els.btnSearch   && els.btnSearch.addEventListener('click', (e)=>{ e.preventDefault(); searchApi.onSearch(); });
   els.addr        && els.addr.addEventListener('keydown', (e)=>{ if (e.key==='Enter'){ e.preventDefault(); searchApi.onSearch(); } });
-
-  els.btnStart         && els.btnStart.addEventListener('click',  async (e)=>{
+  els.btnStart && els.btnStart.addEventListener('click', async (e) => {
     e.preventDefault();
+  
     try { await routeApi.centerLikeStart(mapCtrl, { zoom: 17 }); } catch {}
+  
+    try {
+      window.TTS?.unlockOnce?.();
+      window.TTS?.speak?.('ナビを開始します');
+    } catch {}
+  
     routeApi.onStart(searchApi);
   });
   els.btnStop          && els.btnStop.addEventListener('click',   (e)=>{ e.preventDefault(); routeApi.onStop(); });
@@ -139,6 +145,12 @@ export function bindUI(mapCtrl, navCtrl){
 
         Promise
           .resolve(routeApi.centerLikeStart(mapCtrl, { zoom: 17 }))
+          .then(() => {
+            try {
+              window.TTS?.unlockOnce?.();
+              window.TTS?.speak?.('ナビを開始します');
+            } catch {}
+          })
           .then(() => routeApi.onStart(searchApi))
           .catch(() => routeApi.onStart(searchApi));
       } else {
@@ -146,7 +158,6 @@ export function bindUI(mapCtrl, navCtrl){
       }
       return;
     }
-
 
     const q = (sel)=> t && t.closest(sel);
     if (q('#btnSearch'))        { e.preventDefault(); searchApi.onSearch(); return; }
