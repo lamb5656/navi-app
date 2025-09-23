@@ -1,4 +1,3 @@
-// ローカル vendor → jsDelivr → unpkg の順で MapLibre を読み込む
 export function ensureMaplibre() {
   return new Promise((resolve) => {
     if (window.maplibregl) return resolve();

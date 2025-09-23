@@ -1,5 +1,3 @@
-// js/libs/net.js
-// 汎用リトライ＋指数バックオフ
 export async function withBackoff(fn, { retries = 3, base = 400 } = {}) {
   let err;
   for (let i = 0; i <= retries; i++) {

@@ -1,9 +1,5 @@
-// /browser-navi/js/map.js
-// Map rendering utilities with both class-based and function exports.
-
 let defaultController = null;
 
-// ---- helpers ----
 function ensureRouteSource(map) {
   if (!map.getSource('route')) {
     map.addSource('route', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -24,8 +20,8 @@ function ensureRouteSource(map) {
 }
 
 function toGeoJSON(routeData) {
-  // Accept a variety of shapes from ORS/OSRM/proxy responses
-  // 1) GeoJSON Feature/FeatureCollection
+
+
   if (!routeData) {
     return { type: 'FeatureCollection', features: [] };
   }
@@ -35,12 +31,12 @@ function toGeoJSON(routeData) {
   if (routeData.type === 'Feature') {
     return { type: 'FeatureCollection', features: [routeData] };
   }
-  // 2) { geojson: Feature|FeatureCollection }
+
   if (routeData.geojson) {
     const g = routeData.geojson;
     return g.type === 'FeatureCollection' ? g : { type: 'FeatureCollection', features: [g] };
   }
-  // 3) ORS/OSRM-like { routes:[{ geometry: {type:'LineString', coordinates:[...]}}] }
+
   const line =
     routeData.routes?.[0]?.geometry && routeData.routes[0].geometry.type === 'LineString'
       ? routeData.routes[0].geometry
@@ -53,26 +49,25 @@ function toGeoJSON(routeData) {
     };
   }
 
-  // Fallback: empty
+
   return { type: 'FeatureCollection', features: [] };
 }
 
-// ---- class controller ----
 export class MapController {
   constructor() {
     this.map = null;
     this.userMarker = null;
 
-    // ユーザー操作フック
+
     this._onUserInteract = null;
 
-    // ★ 追加: 追従時のターゲットズーム（「開始」時に寄りすぎない/遠すぎないバランス）
-    // デフォルトは 16.5（車向け）。歩きなら 17 �〜 18 が目安。
+
+
     this.followZoom = 16.5;
   }
 
   async init(containerId = 'map') {
-    // Minimal style with OSM raster (no external config required)
+
     const style = {
       version: 8,
       sources: {
@@ -86,46 +81,46 @@ export class MapController {
       layers: [{ id: 'osm', type: 'raster', source: 'osm' }]
     };
 
-    // `maplibregl` is expected to be available after ensureMaplibre()
+
     this.map = new maplibregl.Map({
       container: containerId,
       style,
-      center: [139.767, 35.681], // Tokyo Station default
+      center: [139.767, 35.681],
       zoom: 12
     });
 
-    // Add controls safely
+
     this.map.addControl(new maplibregl.NavigationControl({ showCompass: true, showZoom: true }), 'top-right');
 
     await new Promise((resolve) => this.map.on('load', resolve));
 
     ensureRouteSource(this.map);
 
-    // ユーザーの手動操作を検知してコールバック（スマホの「勝手に戻る」抑制）
+
     const fireInteract = () => { try { this._onUserInteract && this._onUserInteract(); } catch {} };
-    // ユーザー起因の操作イベント群（プログラム操作の movestart は拾わない）
+
     ['dragstart', 'zoomstart', 'rotatestart', 'pitchstart'].forEach(ev => {
       this.map.on(ev, fireInteract);
     });
-    // 一部端末向けの保険（直接のポインタ発火）
+
     ['mousedown', 'touchstart', 'wheel'].forEach(ev => {
       this.map.getCanvas().addEventListener(ev, fireInteract, { passive: true });
     });
 
-    // Register as default controller (first one wins)
+
     if (!defaultController) defaultController = this;
   }
 
-  // UI から登録できるフック
+
   onUserInteract(cb) { this._onUserInteract = typeof cb === 'function' ? cb : null; }
 
-  // ★ 追加: 追従ズームを外部から変更したいとき用
+
   setFollowZoom(z){
     const n = Number(z);
     if (Number.isFinite(n) && n > 0) this.followZoom = n;
   }
 
-  // センター移動のユーティリティ（実装差吸収用）
+
   setCenter(lng, lat) {
     if (!this.map) return;
     if (typeof this.map.jumpTo === 'function') this.map.jumpTo({ center: [lng, lat] });
@@ -140,7 +135,7 @@ export class MapController {
     const src = this.map.getSource('route');
     if (src) src.setData(geo);
 
-    // Fit bounds if we have a line
+
     const feat = geo.features?.[0];
     if (feat?.geometry?.type === 'LineString' && Array.isArray(feat.geometry.coordinates) && feat.geometry.coordinates.length) {
       const coords = feat.geometry.coordinates;
@@ -156,11 +151,6 @@ export class MapController {
     if (src) src.setData({ type: 'FeatureCollection', features: [] });
   }
 
-  /**
-   * 追従（現在地マーカー更新 + 必要ならセンタリング）
-   * - zoom が未指定でも、現在のズームが「追従ターゲット（followZoom）」より低ければ引き上げる。
-   *   → 「開始」直後に遠すぎる見え方を自動で解消。
-   */
   followUser([lng, lat], { center = true, zoom = null } = {}) {
     if (!this.map) return;
     if (!this.userMarker) {
@@ -177,7 +167,7 @@ export class MapController {
 
     if (center) {
       const opts = { duration: 400 };
-      // ★ ここが肝：zoomが明示されていない場合でも、遠すぎるなら followZoom まで引き上げる
+
       if (typeof zoom === 'number') {
         opts.zoom = zoom;
       } else {
@@ -190,7 +180,6 @@ export class MapController {
   }
 }
 
-// ---- function exports (proxy to default controller) ----
 export function drawRoute(routeData) {
   if (defaultController) defaultController.drawRoute(routeData);
 }

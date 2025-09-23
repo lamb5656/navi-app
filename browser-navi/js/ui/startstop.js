@@ -5,7 +5,7 @@ import { withBackoff } from '../libs/net.js';
 export function setupStartStop(els, navCtrl, hooks){
   const state = { goalLngLat: null, _offProgress: null };
 
-  // hide maneuver panel until navigation actually starts
+
   const manEl = document.getElementById('maneuver');
   if (manEl) manEl.style.display = 'none';
 
@@ -29,7 +29,7 @@ export function setupStartStop(els, navCtrl, hooks){
     return [lng, lat];
   }
 
-  // 検索で選んだ最新の目的地を最優先。キャッシュは次点。最後の手段でテキストをジオコーディング
+
   async function ensureGoal(searchApi){
     if (searchApi?.state?.goalLngLat) {
       state.goalLngLat = searchApi.state.goalLngLat;
@@ -47,7 +47,7 @@ export function setupStartStop(els, navCtrl, hooks){
   async function resolveHere(){
     if (navCtrl?.hereInitial && Array.isArray(navCtrl.hereInitial)) return navCtrl.hereInitial;
     return new Promise((resolve)=>{
-      if (!('geolocation' in navigator)) return resolve([139.767, 35.681]); // Tokyo fallback
+      if (!('geolocation' in navigator)) return resolve([139.767, 35.681]);
       navigator.geolocation.getCurrentPosition(
         (pos)=>resolve([pos.coords.longitude, pos.coords.latitude]),
         ()=>resolve([139.767, 35.681]),
@@ -64,7 +64,7 @@ export function setupStartStop(els, navCtrl, hooks){
       const here = await resolveHere();
       hooks?.onGoalFixed && hooks.onGoalFixed({ name: (els.addr?.value || '目的地'), lng: Number(goal[0]), lat: Number(goal[1]) });
 
-      // subscribe HUD events BEFORE start (so first snapshot is received)
+
       const off = navCtrl.onProgress?.((snap)=> hooks?.onTick && hooks.onTick(snap));
 
       await navCtrl.start([here, goal]);
@@ -90,7 +90,7 @@ export function setupStartStop(els, navCtrl, hooks){
     try { navCtrl.stop?.(); } catch {}
     if (state._offProgress) { try { state._offProgress(); } catch {} state._offProgress = null; }
 
-    // 停止時に目的地キャッシュを必ず消し、追従もOFF（勝手に戻る/前回目的地に行くのを防止）
+
     state.goalLngLat = null;
     try { navCtrl.setFollowEnabled?.(false); } catch {}
 
@@ -108,25 +108,26 @@ export function setupStartStop(els, navCtrl, hooks){
     toast(next ? '追従を有効にしました' : '追従を停止しました');
   }
 
-  // ★追加：現在地へ寄せて追従ON（ナビ開始時と同じ“戻って追従”）
-  async function centerLikeStart(mapCtrl){
+  async function centerLikeStart(mapCtrl, opt = {}) {
     const here = await resolveHere();
+    const z = Number.isFinite(opt.zoom) ? Number(opt.zoom) : 17;
 
-    // 地図の中心を現在地へ（maplibre 実装差を吸収するフォールバック）
-    if (typeof mapCtrl?.setCenter === 'function') {
+    const m = mapCtrl?.map || mapCtrl?._map || window.__map || null;
+    if (m?.easeTo) {
+      m.easeTo({ center: [here[0], here[1]], zoom: z, duration: 0 });
+    } else if (typeof mapCtrl?.setCenter === 'function') {
       mapCtrl.setCenter(here[0], here[1]);
+      if (m?.setZoom) m.setZoom(z);
+    } else if (m?.setCenter) {
+      m.setCenter([here[0], here[1]]);
+      if (m?.setZoom) m.setZoom(z);
     } else if (typeof mapCtrl?.flyTo === 'function') {
       mapCtrl.flyTo([here[0], here[1]]);
-    } else if (typeof mapCtrl?.panTo === 'function') {
-      mapCtrl.panTo([here[0], here[1]]);
-    } else {
-      const m = mapCtrl?.map || mapCtrl?._map || window.__map;
-      if (m?.jumpTo) m.jumpTo({ center: [here[0], here[1]] });
-      else if (m?.setCenter) m.setCenter([here[0], here[1]]);
+      if (m?.setZoom) m.setZoom(z);
     }
 
     try { navCtrl.setFollowEnabled?.(true); } catch {}
   }
 
   return { onStart, onStop, onFollowToggle, centerLikeStart, state };
-}
+

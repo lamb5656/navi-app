@@ -1,6 +1,3 @@
-// /browser-navi/js/settings.js
-// App settings (persisted to localStorage). ESM named exports.
-
 const LS_KEY = 'navi.settings.v1';
 
 const DEFAULTS = {
@@ -11,7 +8,6 @@ const DEFAULTS = {
   theme: 'auto',
 };
 
-// ---- persistence ----
 function readStore() {
   try {
     const raw = localStorage.getItem(LS_KEY);
@@ -27,7 +23,6 @@ function writeStore(obj) {
   try { localStorage.setItem(LS_KEY, JSON.stringify(obj)); } catch {}
 }
 
-// ---- public API ----
 export function loadSettings() { return readStore(); }
 export function saveSettings(next) { writeStore(next); }
 export function getSetting(name) { return readStore()[name]; }
@@ -44,7 +39,6 @@ export function setSetting(name, value) {
 
 export function setTheme(theme) { setSetting('theme', theme); }
 
-// ---- theme handling ----
 export function applyTheme(theme) {
   const root = document.documentElement;
   let mode = theme;
@@ -93,7 +87,7 @@ export function saveList(key, arr) {
 }
 
 export function upsertPlace(list, place, mergeDistanceM) {
-  // place: { id, name, lat, lng, ts }
+
   const existingIdx = list.findIndex(p => distanceM(p.lat, p.lng, place.lat, place.lng) <= mergeDistanceM);
   if (existingIdx >= 0) {
     list[existingIdx] = { ...list[existingIdx], name: place.name, ts: place.ts };
@@ -119,6 +113,6 @@ export function trimMax(list, max) {
 }
 
 export function makePlaceId(lat, lng) {
-  // stable id by rounding to 1e-5 (~1m)
+
   return `${lat.toFixed(5)},${lng.toFixed(5)}`;
 }

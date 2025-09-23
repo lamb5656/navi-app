@@ -1,11 +1,8 @@
-// Boot sequence: create map, nav, wire UI, and expose controllers to window.
-
 import { ensureMaplibre } from './libs/maplibre-loader.js';
 import { MapController } from './map.js';
 import { NavigationController } from './nav.js';
 import { bindUI } from './ui.js';
 
-// PWA (Service Worker)
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js', { scope: './' }).catch(() => {});
 }
@@ -31,7 +28,7 @@ if ('serviceWorker' in navigator) {
     ready(() => {
       try {
         bindUI(mapCtrl, navCtrl);
-        // ★ HUD/デバッグ用に window に公開
+
         window.mapCtrl = mapCtrl;
         window.navCtrl = navCtrl;
         console.log('[SVN] UI bound & controllers exposed on window');
@@ -40,7 +37,7 @@ if ('serviceWorker' in navigator) {
       }
     });
 
-    // 初期位置を一度取得（表示だけ）
+
     if ('geolocation' in navigator && typeof navCtrl.setHereInitial === 'function') {
       navigator.geolocation.getCurrentPosition(
         (pos) => {

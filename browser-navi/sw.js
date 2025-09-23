@@ -1,13 +1,10 @@
-// sw.js (SwitchVoiceNavi)
-// Version bump on every deploy to bust caches.
-const VERSION = '2025-09-21-01';
+const VERSION = '2025-09-23-01';
 const STATIC_CACHE = `svn-static-${VERSION}`;
 const RUNTIME_CACHE = `svn-runtime-${VERSION}`;
 const TILE_CACHE = `svn-tiles-${VERSION}`;
 
-// Files safe to pre-cache (small, rarely changed)
 const PRECACHE = [
-  './',                // index.html (fallback)
+  './',
   './styles.css',
   './config.js',
   './js/main.js',
@@ -16,12 +13,10 @@ const PRECACHE = [
   './vendor/maplibre-gl.js',
 ];
 
-// Utilities
 const isNavigation = (req) => req.mode === 'navigate' || (req.headers && req.headers.get('accept')?.includes('text/html'));
 const sameOrigin = (url) => new URL(url, self.location.href).origin === self.location.origin;
 const isTile = (url) => /tile|tiles|tile\.openstreetmap|\.png|\.mvt|\.pbf/i.test(url);
 
-// Install: pre-cache tiny core & take over immediately
 self.addEventListener('install', (event) => {
   self.skipWaiting();
   event.waitUntil(
@@ -31,7 +26,6 @@ self.addEventListener('install', (event) => {
   );
 });
 
-// Activate: clean old caches and control pages now
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
     const keys = await caches.keys();
@@ -43,23 +37,21 @@ self.addEventListener('activate', (event) => {
   })());
 });
 
-// Fetch strategies:
-// - HTML navigation: Network-First, fallback to cached index
-// - Same-origin assets: Stale-While-Revalidate
-// - Tiles/externals: Cache-First with soft cap
+
+
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   const url = req.url;
 
-  // Only handle GET
+
   if (req.method !== 'GET') return;
 
-  // HTML / navigation -> Network-First
+
   if (isNavigation(req)) {
     event.respondWith((async () => {
       try {
         const fresh = await fetch(req, { cache: 'no-store' });
-        // Optionally update the cached index.html
+
         const cache = await caches.open(STATIC_CACHE);
         cache.put('./', fresh.clone());
         return fresh;
@@ -72,7 +64,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Same-origin static assets -> Stale-While-Revalidate
+
   if (sameOrigin(url)) {
     event.respondWith((async () => {
       const cache = await caches.open(RUNTIME_CACHE);
@@ -91,7 +83,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Tiles / cross-origin -> Cache-First (+soft cap)
+
   if (isTile(url)) {
     event.respondWith((async () => {
       const cache = await caches.open(TILE_CACHE);
@@ -101,7 +93,7 @@ self.addEventListener('fetch', (event) => {
         const fresh = await fetch(req, { mode: 'cors' });
         if (fresh && fresh.ok) {
           cache.put(req, fresh.clone());
-          pruneCache(cache, 800); // limit tile entries
+          pruneCache(cache, 800);
         }
         return fresh;
       } catch {
@@ -112,7 +104,6 @@ self.addEventListener('fetch', (event) => {
   }
 });
 
-// Soft limit cache size
 async function pruneCache(cache, max) {
   const keys = await cache.keys();
   if (keys.length <= max) return;

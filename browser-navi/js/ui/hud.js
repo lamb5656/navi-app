@@ -1,4 +1,3 @@
-// HUD updater for IDs: remainKm, eta, status
 const get = (id) => document.getElementById(id);
 
 function formatDistanceKm(m) {

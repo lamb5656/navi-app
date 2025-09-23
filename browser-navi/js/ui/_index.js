@@ -13,10 +13,10 @@ export function bindUI(mapCtrl, navCtrl){
     btnStop:         $('btnStop'),
     btnFollowToggle: $('btnFollowToggle'),
     btnRecenter:     $('btnRecenter'),
-    // search card
+
     searchCard: $('searchCard'),
     searchList: $('searchList'),
-    // settings
+
     settingsCard: $('settingsCard'),
     btnOpenSettings: $('btnOpenSettings'),
     btnSettingsClose: $('btnSettingsClose'),
@@ -25,7 +25,7 @@ export function bindUI(mapCtrl, navCtrl){
     setTtsVolume: $('setTtsVolume'),
     setTtsRate: $('setTtsRate'),
     setTheme: $('setTheme'),
-    // menus & lists
+
     appMenu: $('appMenu'),
     favoritesList: $('favorites-list'),
     historyList: $('history-list'),
@@ -34,11 +34,11 @@ export function bindUI(mapCtrl, navCtrl){
     avoidTollsToolbar: $('avoidTolls'),
   };
 
-  // HUD
+
   const hud = createHUD();
   const hudSink = (snap) => hud.update(snap);
 
-  // modules
+
   const searchApi = setupSearch(els, mapCtrl);
   setupSettings(els);
 
@@ -48,16 +48,19 @@ export function bindUI(mapCtrl, navCtrl){
     onTick:      (snap)  => { hudSink(snap); }
   });
 
-  // search
+
   els.btnSearch   && els.btnSearch.addEventListener('click', (e)=>{ e.preventDefault(); searchApi.onSearch(); });
   els.addr        && els.addr.addEventListener('keydown', (e)=>{ if (e.key==='Enter'){ e.preventDefault(); searchApi.onSearch(); } });
 
-  // start/stop/follow
-  els.btnStart         && els.btnStart.addEventListener('click',  (e)=>{ e.preventDefault(); routeApi.onStart(searchApi); });
+  els.btnStart         && els.btnStart.addEventListener('click',  async (e)=>{
+    e.preventDefault();
+    try { await routeApi.centerLikeStart(mapCtrl, { zoom: 17 }); } catch {}
+    routeApi.onStart(searchApi);
+  });
   els.btnStop          && els.btnStop.addEventListener('click',   (e)=>{ e.preventDefault(); routeApi.onStop(); });
   els.btnFollowToggle  && els.btnFollowToggle.addEventListener('click', (e)=>{ e.preventDefault(); routeApi.onFollowToggle(); });
 
-  // 現在地ボタン：ナビ開始と同じ“現在地へ寄せて追従ON”
+
   els.btnRecenter && els.btnRecenter.addEventListener('click', async (e)=>{
     e.preventDefault();
     try{
@@ -69,7 +72,7 @@ export function bindUI(mapCtrl, navCtrl){
     }
   });
 
-  // ☆ ユーザーが地図を触ったら追従OFF（スマホで「ずっと戻される」を止める肝）
+
   try {
     mapCtrl.onUserInteract?.(() => {
       try { navCtrl.setFollowEnabled(false); } catch {}
@@ -77,7 +80,7 @@ export function bindUI(mapCtrl, navCtrl){
     });
   } catch {}
 
-  // ☆ 現在の目的地を登録（元の実装を維持）
+
   if (els.btnFavCurrent){
     els.btnFavCurrent.addEventListener('click', (e)=>{
       e.preventDefault();
@@ -87,7 +90,7 @@ export function bindUI(mapCtrl, navCtrl){
 
   renderQuickLists();
 
-  // ===== クリック委譲（元の実装を維持） =====
+
   function findGoButton(target){
     if (!(target instanceof Element)) return null;
     return target.closest('[data-action="start"], .fav-go, .js-go, .go, .play') ||
@@ -110,23 +113,40 @@ export function bindUI(mapCtrl, navCtrl){
     const goBtn = listRoot && findGoButton(t);
     if (listRoot && goBtn) {
       e.preventDefault();
+
       const item = findItemNode(goBtn);
       let lng = Number(item?.dataset?.lng);
       let lat = Number(item?.dataset?.lat);
+
       if (!Number.isFinite(lng) || !Number.isFinite(lat)) {
         const coords = (item?.dataset?.coords || goBtn.dataset?.coords || '').split(',');
-        if (coords.length === 2) { lng = Number(coords[0]); lat = Number(coords[1]); }
+        if (coords.length === 2) {
+          lng = Number(coords[0]);
+          lat = Number(coords[1]);
+        }
       }
-      const name = (item?.dataset?.name || goBtn.dataset?.name || goBtn.getAttribute('title') || goBtn.textContent || '').trim() || (els.addr?.value || '目的地');
+
+      const name =
+        (item?.dataset?.name ||
+         goBtn.dataset?.name ||
+         goBtn.getAttribute('title') ||
+         goBtn.textContent ||
+         '').trim() || (els.addr?.value || '目的地');
+
       if (Number.isFinite(lng) && Number.isFinite(lat)) {
         if (els.addr) els.addr.value = name;
         if (searchApi?.state) searchApi.state.goalLngLat = [lng, lat];
-        Promise.resolve(routeApi.onStart(searchApi)).catch(()=>{});
+
+        Promise
+          .resolve(routeApi.centerLikeStart(mapCtrl, { zoom: 17 }))
+          .then(() => routeApi.onStart(searchApi))
+          .catch(() => routeApi.onStart(searchApi));
       } else {
         toast('この項目に座標が無いみたいです');
       }
       return;
     }
+
 
     const q = (sel)=> t && t.closest(sel);
     if (q('#btnSearch'))        { e.preventDefault(); searchApi.onSearch(); return; }

@@ -17,10 +17,10 @@
     <div class="header-inner">
       <div class="brand">SwitchVoiceNavi</div>
       <nav class="nav">
-        <!-- ハンバーガーメニュー -->
+
         <details id="appMenu">
           <summary aria-label="メニュー" title="メニュー">
-            <!-- 3本線 -->
+
             <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M3 6h18M3 12h18M3 18h18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
             </svg>
@@ -33,7 +33,7 @@
               </div>
             </section>
 
-            <!-- お気に入り -->
+
             <section class="menu-section">
               <h3 class="menu-title">お気に入り</h3>
               <div class="menu-actions" style="margin-bottom:8px;">
@@ -42,7 +42,7 @@
               <div id="favorites-list" class="svn-chip-list"></div>
             </section>
 
-            <!-- 履歴 -->
+
             <section class="menu-section">
               <div style="display:flex;align-items:center;gap:8px;">
                 <h3 class="menu-title" style="margin:0;">履歴</h3>
@@ -53,13 +53,13 @@
           </div>
         </details>
 
-        <!-- 停止はヘッダー右上に常設（開始後だけ表示） -->
+
         <button id="btnStop" class="btn" disabled>停止</button>
       </nav>
     </div>
   </header>
 
-  <!-- すっきりしたツールバー（メニュー内に履歴/お気に入りを集約） -->
+
   <div class="toolbar">
     <input id="addr" type="text" placeholder="目的地を検索（例：名古屋駅）">
     <button id="btnSearch" class="btn">検索</button>
@@ -68,7 +68,7 @@
     <button id="btnFollowToggle" class="btn" type="button">進行方向</button>
   </div>
 
-  <!-- 進行案内カード（300m手前〜実行まで表示） -->
+
   <div id="maneuver" class="maneuver" aria-live="polite" aria-atomic="true" hidden>
     <div class="icon" id="manIcon">⤴︎</div>
     <div class="lane">
@@ -82,7 +82,7 @@
     </div>
   </div>
 
-  <!-- 再中心（現在地へ戻る） -->
+
   <button id="btnRecenter" class="fab" type="button" title="現在地へ戻る">◎</button>
 
   <div id="map" aria-label="map"></div>
@@ -97,13 +97,13 @@
 
   <div id="toast" class="toast"></div>
 
-  <!-- 検索候補 -->
+
   <div id="searchCard" class="card" aria-modal="true" role="dialog">
     <header>検索候補</header>
     <div class="body" id="searchList"></div>
   </div>
 
-  <!-- 設定カード -->
+
   <div id="settingsCard" class="card settings" role="dialog" aria-modal="true">
     <header>設定</header>
     <div class="body">

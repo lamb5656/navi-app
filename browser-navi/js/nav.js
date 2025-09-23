@@ -15,7 +15,7 @@ function haversine(lat1, lon1, lat2, lon2) {
   const a=Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
   return 2*R*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
-// polyline decoder（precision 5/6）
+
 function decodePolyline(str, precision = 6) {
   if (!str || typeof str !== 'string') return [];
   const factor = Math.pow(10, precision);
@@ -45,7 +45,6 @@ const pickIcon = (step) => {
   return ICONS.straight;
 };
 
-// ===== extractors（しぶとい版） =====
 function getLineCoordsFromRoute(r0){
   if (r0?.geometry?.type === 'LineString' && Array.isArray(r0.geometry.coordinates)) return r0.geometry.coordinates;
   if (typeof r0?.geometry === 'string') {
@@ -117,7 +116,6 @@ function stepCenter(step){
   return null;
 }
 
-// ===== Navigation Controller =====
 export class NavigationController {
   constructor(mapController){
     this.mapCtrl = mapController || null;
@@ -249,7 +247,7 @@ export class NavigationController {
 
     this._emit(this._mkSnap('案内中'));
 
-    // 左の進行カード（任意簡略）
+
     const card = document.getElementById('progress-card');
     if (card && steps.length){
       const step = steps[0];

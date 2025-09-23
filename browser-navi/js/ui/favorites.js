@@ -1,4 +1,3 @@
-// お気に入り/履歴（settings.js 現行API対応）
 import { toast } from './dom.js';
 import {
   StorageKeys, loadList, saveList, upsertPlace, trimMax, makePlaceId
@@ -30,7 +29,7 @@ export function toggleFavorite(item) {
 }
 
 export function addHistory(item) {
-  // 完全重複（id or name+lng+lat）は1件に
+
   const hist = loadHistory();
   const p = normalizePlace(item);
   const merged = hist.filter(h => !(h.id === p.id || (h.name === p.name && h.lng === p.lng && h.lat === p.lat)));
@@ -54,12 +53,12 @@ function renderList(container, items, opt = {}) {
     li.dataset.lng = String(it.lng);
     li.dataset.lat = String(it.lat);
 
-    // 1行目：住所フル
+
     const name = document.createElement('div');
     name.className = 'poi-name';
     name.textContent = it.name || '(名称未設定)';
 
-    // 2行目：ボタン群
+
     const actions = document.createElement('div');
     actions.className = 'poi-actions';
 

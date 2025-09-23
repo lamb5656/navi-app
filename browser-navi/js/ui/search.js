@@ -1,9 +1,6 @@
 import { API_BASE } from '../../config.js';
 import { $, forceOpen, forceClose, toast } from './dom.js';
 
-/* -------------------- helpers -------------------- */
-
-// Normalize Japanese address: zenkaku->hankaku, hyphen unification, gentle "chome" insertion.
 function normalizeJaAddress(input) {
   if (!input) return '';
   const z2h = s => s.replace(/[０-９Ａ-Ｚａ-ｚ]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0));
@@ -14,7 +11,6 @@ function normalizeJaAddress(input) {
   return q;
 }
 
-// Simple fetch with timeout, returning { ok, status, data }
 async function fetchJson(url, opt = {}, timeoutMs = 8000) {
   const ctrl = new AbortController();
   const id = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -59,7 +55,6 @@ function scoreForResult(item) {
   return (isAddress ? 100 : 0) + (item.importance ? item.importance * 10 : 0);
 }
 
-// Accept FeatureCollection/array/object and normalize to array-ish list
 function toArray(data) {
   if (Array.isArray(data)) return data;
   if (data && Array.isArray(data.features)) return data.features;
@@ -67,9 +62,8 @@ function toArray(data) {
   return [];
 }
 
-// Extract uniform fields from various Nominatim/proxy shapes
 function extractRecord(r) {
-  // Feature (GeoJSON from proxy)
+
   if (r && r.type === 'Feature') {
     const c = r.geometry && Array.isArray(r.geometry.coordinates) ? r.geometry.coordinates : [NaN, NaN];
     const p = r.properties || {};
@@ -85,7 +79,7 @@ function extractRecord(r) {
       importance: p.importance || 0
     };
   }
-  // Plain nominatim row or already flattened object
+
   return {
     lat: Number(r.lat ?? r.y ?? (r.geometry && r.geometry.coordinates && r.geometry.coordinates[1])),
     lon: Number(r.lon ?? r.x ?? (r.geometry && r.geometry.coordinates && r.geometry.coordinates[0])),
@@ -99,8 +93,6 @@ function extractRecord(r) {
   };
 }
 
-/* -------------------- geocoding core -------------------- */
-
 async function searchNominatim(rawInput, nearLngLat) {
   const q = normalizeJaAddress(rawInput);
 
@@ -113,11 +105,11 @@ async function searchNominatim(rawInput, nearLngLat) {
 
   const looksAddress = /[0-9\-]|丁目|番地|号/.test(q);
 
-  // 1) proxy free search
+
   let { ok, status, data } = await fetchJson(`${API_BASE}/geocode?${base.toString()}`);
   let arr = toArray(data);
 
-  // 2) bias by center if empty
+
   if ((!arr || !arr.length) && nearLngLat && Number.isFinite(nearLngLat[0]) && Number.isFinite(nearLngLat[1])) {
     const p2 = new URLSearchParams(base);
     p2.set('ll', `${nearLngLat[0]},${nearLngLat[1]}`);
@@ -126,18 +118,18 @@ async function searchNominatim(rawInput, nearLngLat) {
     arr = toArray(data);
   }
 
-  // 3) structured for address-like input
+
   if ((!arr || !arr.length) && looksAddress) {
     const p3 = new URLSearchParams(base);
     p3.set('structured', '1');
     if (nearLngLat && Number.isFinite(nearLngLat[0]) && Number.isFinite(nearLngLat[1])) {
-      p3.set('ll', `${nearLngLat[0]},${nearLngLat[1]}`); // hint only
+      p3.set('ll', `${nearLngLat[0]},${nearLngLat[1]}`);
     }
     ({ ok, status, data } = await fetchJson(`${API_BASE}/geocode?${p3.toString()}`));
     arr = toArray(data);
   }
 
-  // 4) FINAL BACKUP: public Nominatim if still empty
+
   if (!arr || !arr.length) {
     const qParams = new URLSearchParams();
     qParams.set('q', q);
@@ -148,7 +140,7 @@ async function searchNominatim(rawInput, nearLngLat) {
     qParams.set('countrycodes', 'jp');
     if (nearLngLat && Number.isFinite(nearLngLat[0]) && Number.isFinite(nearLngLat[1])) {
       const [lng, lat] = nearLngLat;
-      const box = 0.5; // ~50km
+      const box = 0.5;
       qParams.set('viewbox', `${lng - box},${lat + box},${lng + box},${lat - box}`);
       qParams.set('bounded', '0');
     }
@@ -168,8 +160,6 @@ async function searchNominatim(rawInput, nearLngLat) {
 
   return arr || [];
 }
-
-/* -------------------- UI binding -------------------- */
 
 export function setupSearch(els, mapCtrl) {
   const state = { goalLngLat: null, nearLngLat: null };
@@ -193,7 +183,7 @@ export function setupSearch(els, mapCtrl) {
     catch (e) { console.warn('geocode error', e); toast('検索に失敗しました'); return; }
 
     const list = (rawResults || []).map(r0 => {
-      const r = extractRecord(r0); // <-- unify shapes (Feature vs plain)
+      const r = extractRecord(r0);
       const lat = Number(r.lat);
       const lng = Number(r.lon);
       const fallback = r.display_name || r.name || '';
@@ -209,7 +199,7 @@ export function setupSearch(els, mapCtrl) {
       return cand;
     }).filter(x => Number.isFinite(x.lat) && Number.isFinite(x.lng));
 
-    // sort: better score, then closer
+
     list.sort((a, b) => (b.score - a.score) || ((a.__distanceKm || 0) - (b.__distanceKm || 0)));
 
     renderList(list);
