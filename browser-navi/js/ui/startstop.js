@@ -60,15 +60,16 @@ export function setupStartStop(els, navCtrl, hooks) {
     if (!first) return null;
 
     var lng = Number(
-      (first.lon != null ? first.lon :
-      (first.lng != null ? first.lng :
-      (first.longitude != null ? first.longitude :
-      (first.center && first.center[0] != null ? first.center[0] : NaN))))
+      first.lon != null ? first.lon :
+      first.lng != null ? first.lng :
+      first.longitude != null ? first.longitude :
+      (first.center && first.center[0] != null ? first.center[0] : NaN)
     );
+
     var lat = Number(
-      (first.lat != null ? first.lat :
-      (first.latitude != null ? first.latitude :
-      (first.center && first.center[1] != null ? first.center[1] : NaN)))
+      first.lat != null ? first.lat :
+      first.latitude != null ? first.latitude :
+      (first.center && first.center[1] != null ? first.center[1] : NaN)
     );
 
     if (!isFinite(lng) || !isFinite(lat)) return null;
