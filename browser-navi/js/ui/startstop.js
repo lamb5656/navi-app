@@ -56,6 +56,10 @@ export function setupStartStop(els, navCtrl, hooks){
   }
 
   async function onStart(searchApi){
+
+    try { window.TTS?.unlock?.(); } catch {}
+    try { TTS?.unlock?.(); } catch {}
+
     try{
       const goal = await ensureGoal(searchApi);
       if (!goal){ toast('先に目的地を検索して選択してください'); return; }

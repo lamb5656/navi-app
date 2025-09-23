@@ -8,6 +8,79 @@ function toast(msg, ms = 3000) {
         document.body.appendChild(t); setTimeout(() => t.remove(), ms); } catch {}
 }
 
+// ==== TTS helper（音声案内） ====
+const TTS = (() => {
+  let ready = false;
+  let jaVoice = null;
+
+  function pickJaVoice() {
+    try {
+      const voices = window.speechSynthesis?.getVoices?.() || [];
+      if (!voices.length) return null;
+      // 日本語優先（ja-JP / ja）
+      return voices.find(v => /^ja(-|_|$)/i.test(v.lang)) || voices[0] || null;
+    } catch { return null; }
+  }
+
+  function refreshVoice() {
+    jaVoice = pickJaVoice();
+    ready = !!jaVoice || (window.speechSynthesis && window.speechSynthesis.getVoices().length > 0);
+  }
+
+  if ('speechSynthesis' in window) {
+    refreshVoice();
+    try {
+      window.speechSynthesis.onvoiceschanged = () => refreshVoice();
+    } catch {}
+  }
+
+  function getNum(v, def) { const n = Number(v); return Number.isFinite(n) ? n : def; }
+  function getSettingSafe(key, def) {
+    try { return JSON.parse(localStorage.getItem('navi.settings') || '{}')[key] ?? def; } catch { return def; }
+  }
+
+  function speak(text) {
+    if (!('speechSynthesis' in window)) return;
+    if (!text || typeof text !== 'string') return;
+
+    const vol = getNum(getSettingSafe('ttsVolume', 1), 1); // 0..1
+    const rate = getNum(getSettingSafe('ttsSpeed', 1), 1); // 0.1..10
+    const u = new SpeechSynthesisUtterance(text);
+    if (jaVoice) u.voice = jaVoice;
+    u.lang = (jaVoice?.lang || 'ja-JP');
+    u.volume = Math.max(0, Math.min(1, vol));
+    u.rate = Math.max(0.1, Math.min(2, rate)); // 速すぎ防止
+    try { window.speechSynthesis.speak(u); } catch {}
+  }
+
+  const memory = new Map();
+  function keyOf(step) {
+    return (step?.id ?? step?.way_points?.join('-') ?? '') + '::' + (step?.instruction || step?.name || '');
+  }
+
+  function maybeAnnounce(step) {
+    const dist = Number(step?.distance ?? step?.remain ?? step?.remainMeters ?? NaN);
+    if (!Number.isFinite(dist)) return;
+
+    const key = keyOf(step);
+    const flags = memory.get(key) || { p300: false, near: false };
+
+    if (!flags.near && dist <= 90) {
+      const line = (step?.instruction || step?.name || '').trim();
+      if (line) speak(line);
+      flags.near = true;
+    }
+
+    memory.set(key, flags);
+  }
+
+  function unlock() {
+    try { window.speechSynthesis.cancel(); } catch {}
+  }
+
+  return { speak, maybeAnnounce, unlock };
+})();
+
 const toLL = ([lng, lat]) => ({ lng: Number(lng), lat: Number(lat) });
 function haversine(lat1, lon1, lat2, lon2) {
   const R=6371000, toRad=(d)=>d*Math.PI/180;
@@ -247,17 +320,20 @@ export class NavigationController {
 
     this._emit(this._mkSnap('案内中'));
 
-
     const card = document.getElementById('progress-card');
-    if (card && steps.length){
+    if (card && steps.length) {
       const step = steps[0];
+    
+      // ← 音声案内のトリガー（距離に応じて自動で300m予告/直前を読み上げ）
+      try { TTS.maybeAnnounce(step); } catch {}
+    
       const icon = pickIcon(step);
       card.innerHTML = `
         <div class="progress-row">
           <span class="nav-icon ${icon}"></span>
           <span class="nav-text">${step.instruction || step.name || ''}</span>
         </div>
-        <div class="nav-sub">Remain ${Math.round(step.distance || 0)} m</div>
+        <div class="nav-sub">残り ${Math.round(step.distance || 0)} m</div>
       `;
     }
   }
