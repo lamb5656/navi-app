@@ -1,6 +1,3 @@
-// /browser-navi/js/nav.js
-// Android WebView 互換（no ?. / no ??）。English-only comments.
-
 import { API_BASE } from '../config.js';
 
 // -------- utils --------
@@ -25,7 +22,6 @@ function lineLengthMeters(coords){
 function kmStr(m){ if(!isFinite(m)) return '--'; if(m<1000) return Math.round(m)+' m'; return (m/1000).toFixed(1)+' km'; }
 function etaText(sec){ if(!isFinite(sec)||sec<=0) return '--:--'; var s=Math.round(sec), h=(s/3600)|0, m=((s%3600)/60)|0; return h>0?(h+'h '+m+'m'):(m+'m'); }
 
-// polyline decode (1e6/1e5)
 function decodePolyline(str,factor){
   var i=0, lat=0, lng=0, out=[], shift, result, byte, dlat, dlng;
   try{
@@ -87,7 +83,6 @@ function extractFromOSRM(data){
   return out;
 }
 
-// -------- TTS --------
 var TTS={
   unlocked:false, wired:false,
   unlockOnce:function(){
@@ -106,22 +101,20 @@ var TTS={
 TTS.wire();
 window.TTS = window.TTS || TTS;
 
-// -------- HUD bus --------
 function emitHud(detail){ try{ window.dispatchEvent(new CustomEvent('hud:update',{detail})); }catch(e){} }
 
-// -------- NavigationController --------
 export class NavigationController {
   constructor(mapCtrl){
-    this.mapCtrl = mapCtrl;          // from main.js (:contentReference[oaicite:5]{index=5})
-    this.dest    = null;             // {lng,lat,label}
+    this.mapCtrl = mapCtrl;
+    this.dest    = null;
     this.active  = false;
 
-    this.routeCoords = [];           // [[lng,lat], ...]
+    this.routeCoords = [];
     this.totalM = NaN;
     this.totalS = NaN;
 
-    this.hereInitial = null;         // [lng,lat] set by main.js → navCtrl.setHereInitial()
-    this.hereLast    = null;         // {lng,lat}, updated by watch
+    this.hereInitial = null;
+    this.hereLast    = null;
     this._watchId = null;
 
     this._hudTimer = null;
@@ -130,7 +123,7 @@ export class NavigationController {
     this._lastRerouteAt = 0;
   }
 
-  setHereInitial(ll){ this.hereInitial = Array.isArray(ll)? ll : null; } // called by main.js (:contentReference[oaicite:6]{index=6})
+  setHereInitial(ll){ this.hereInitial = Array.isArray(ll)? ll : null; }
   setDestination(p){ this.dest = p; }
 
   _buildGetUrl(start, goal){
@@ -151,7 +144,7 @@ export class NavigationController {
 
   _applyRoute(coords){
     this.routeCoords = coords||[];
-    // MapController.drawRoute can accept GeoJSON FeatureCollection or Feature with LineString (:contentReference[oaicite:7]{index=7})
+
     var geo = {
       type:'FeatureCollection',
       features: this.routeCoords.length>1 ? [{ type:'Feature', geometry:{ type:'LineString', coordinates:this.routeCoords }, properties:{} }] : []
@@ -192,7 +185,6 @@ export class NavigationController {
       var pos = self.hereLast ? self.hereLast : (self.hereInitial ? {lng:self.hereInitial[0], lat:self.hereInitial[1]} : null);
       if(!pos) return;
 
-      // progress
       var best=-1, bestD=Infinity;
       for(var i=0;i<self.routeCoords.length;i++){
         var c=self.routeCoords[i];
@@ -212,7 +204,6 @@ export class NavigationController {
 
       emitHud({ remainMeters: remain, remainText: kmStr(remain), etaText: etaText(eta), status: self.active?'navigating':'idle' });
 
-      // off-route & cooldown
       if(bestD>self._offRouteThresholdM){
         var t=nowMs();
         if(t-self._lastRerouteAt>self._rerouteCooldownMs){
@@ -277,7 +268,7 @@ export class NavigationController {
 
     var startPos = this.hereLast ? this.hereLast
                  : (this.hereInitial ? { lng:this.hereInitial[0], lat:this.hereInitial[1] }
-                 : { lng:139.767, lat:35.681 }); // Tokyo fallback
+                 : { lng:139.767, lat:35.681 });
 
     var payload={ coordinates:[[startPos.lng,startPos.lat],[this.dest.lng,this.dest.lat]], profile:'driving-car', avoidTolls:true };
     var data=null, coords=[];

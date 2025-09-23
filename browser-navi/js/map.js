@@ -1,9 +1,5 @@
-// /browser-navi/js/map.js
-// Map rendering utilities with both class-based and function exports.
-
 let defaultController = null;
 
-// ---- helpers ----
 function ensureRouteSource(map) {
   if (!map.getSource('route')) {
     map.addSource('route', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -52,16 +48,13 @@ function toGeoJSON(routeData) {
   return { type: 'FeatureCollection', features: [] };
 }
 
-// ---- class controller ----
 export class MapController {
   constructor() {
     this.map = null;
     this.userMarker = null;
 
-    // ユーザー操作フック（UI側で navCtrl.setFollowEnabled(false) などを呼ぶ）
     this._onUserInteract = null;
 
-    // 追従時の標準ズーム
     this.followZoom = 16.5;
   }
 
@@ -79,11 +72,10 @@ export class MapController {
       layers: [{ id: 'osm', type: 'raster', source: 'osm' }]
     };
 
-    // `maplibregl` は vendor 側でロード済み想定
     this.map = new maplibregl.Map({
       container: containerId,
       style,
-      center: [139.767, 35.681], // Tokyo
+      center: [139.767, 35.681],
       zoom: 12
     });
 
@@ -93,8 +85,6 @@ export class MapController {
 
     ensureRouteSource(this.map);
 
-    // === ユーザー操作のみ検知（プログラム操作による追従OFFを防ぐ） ===
-    // MapLibre のイベントは、ユーザー操作時のみ `originalEvent` が入る。
     const fireIfUser = (e) => {
       if (!this._onUserInteract) return;
       if (e && e.originalEvent) {
@@ -102,32 +92,25 @@ export class MapController {
       }
     };
 
-    // ※ zoomstart は除外（easeTo/fitBounds でも発火しやすい）
-    // movestart は originalEvent のある時のみ拾うため OK
     ['dragstart', 'rotatestart', 'pitchstart', 'movestart'].forEach(ev => {
       this.map.on(ev, fireIfUser);
     });
 
-    // 一部端末向けの保険（DOM ポインタイベントはユーザー操作のみ）
     const callUser = () => { try { this._onUserInteract && this._onUserInteract(); } catch {} };
     this.map.getCanvas().addEventListener('mousedown', callUser, { passive: true });
     this.map.getCanvas().addEventListener('touchstart', callUser, { passive: true });
     this.map.getCanvas().addEventListener('wheel', callUser, { passive: true });
 
-    // 既定コントローラ登録
     if (!defaultController) defaultController = this;
   }
 
-  // UI から登録できるフック
   onUserInteract(cb) { this._onUserInteract = typeof cb === 'function' ? cb : null; }
 
-  // 追従ズームの設定
   setFollowZoom(z) {
     const n = Number(z);
     if (Number.isFinite(n) && n > 0) this.followZoom = n;
   }
 
-  // センター移動のユーティリティ
   setCenter(lng, lat) {
     if (!this.map) return;
     if (typeof this.map.jumpTo === 'function') this.map.jumpTo({ center: [lng, lat] });
@@ -142,7 +125,6 @@ export class MapController {
     const src = this.map.getSource('route');
     if (src) src.setData(geo);
 
-    // ルート線があれば全体表示
     const feat = geo.features?.[0];
     if (feat?.geometry?.type === 'LineString' && Array.isArray(feat.geometry.coordinates) && feat.geometry.coordinates.length) {
       const coords = feat.geometry.coordinates;
@@ -158,11 +140,9 @@ export class MapController {
     if (src) src.setData({ type: 'FeatureCollection', features: [] });
   }
 
-  // 追従（現在地マーカー更新 + 必要ならセンタリング/ズーム）
   followUser([lng, lat], { center = true, zoom = null } = {}) {
     if (!this.map) return;
 
-    // マーカー更新
     if (!this.userMarker) {
       const el = document.createElement('div');
       el.style.width = '14px';
@@ -175,7 +155,6 @@ export class MapController {
       this.userMarker.setLngLat([lng, lat]);
     }
 
-    // センタリング／ズーム（プログラム操作：追従OFFにしない）
     if (center) {
       const opts = { duration: 400 };
       if (typeof zoom === 'number') {
@@ -190,7 +169,6 @@ export class MapController {
   }
 }
 
-// ---- function exports (proxy to default controller) ----
 export function drawRoute(routeData) {
   if (defaultController) defaultController.drawRoute(routeData);
 }

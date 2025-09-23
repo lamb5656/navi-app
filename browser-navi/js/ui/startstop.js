@@ -1,12 +1,6 @@
-// js/ui/startstop.js (drop-in replacement)
-// ES5-compatible (no optional chaining / nullish). Android WebView safe.
-// Aligns with nav.js that exposes: navCtrl.setDestination({lng,lat,label}), navCtrl.start(), navCtrl.stop().
-// Comments in English only.
-
 import { toast } from './dom.js';
 import { API_BASE } from '../../config.js';
 
-// Simple fetch with backoff (local impl to avoid external dependency)
 async function fetchWithBackoff(factory, opts) {
   var retries = (opts && opts.retries != null) ? opts.retries : 2;
   var base = (opts && opts.base != null) ? opts.base : 300;
@@ -27,11 +21,9 @@ async function fetchWithBackoff(factory, opts) {
 export function setupStartStop(els, navCtrl, hooks) {
   var state = { goalLngLat: null, _followHeading: true };
 
-  // Maneuver panel (hidden until start)
   var manEl = document.getElementById('maneuver');
   if (manEl && manEl.style) manEl.style.display = 'none';
 
-  // ---- Geocode ----
   async function geocode(text) {
     var url = API_BASE.replace(/\/+$/, '') + '/geocode?text=' + encodeURIComponent(text);
     var res = await fetchWithBackoff(function () {
@@ -41,7 +33,6 @@ export function setupStartStop(els, navCtrl, hooks) {
     if (!res.ok) throw new Error('geocode http ' + res.status);
     var data = await res.json();
 
-    // Normalize to {lon, lat}
     function featureToLL(f) {
       var c = f && f.geometry && f.geometry.coordinates;
       if (c && c.length >= 2) return { lon: Number(c[0]), lat: Number(c[1]) };
@@ -76,18 +67,14 @@ export function setupStartStop(els, navCtrl, hooks) {
     return [lng, lat];
   }
 
-  // ---- Goal / Here resolvers ----
   async function ensureGoal(searchApi) {
-    // 1) prefer from searchApi.state.goalLngLat
     var fromApi = (searchApi && searchApi.state && searchApi.state.goalLngLat) ? searchApi.state.goalLngLat : null;
     if (fromApi && Array.isArray(fromApi)) {
       state.goalLngLat = fromApi;
       return state.goalLngLat;
     }
-    // 2) cached
     if (state.goalLngLat && Array.isArray(state.goalLngLat)) return state.goalLngLat;
 
-    // 3) from input
     var q = (els && els.addr && typeof els.addr.value === 'string') ? els.addr.value.trim() : '';
     if (!q) return null;
 
@@ -97,11 +84,10 @@ export function setupStartStop(els, navCtrl, hooks) {
   }
 
   async function resolveHere() {
-    // If navCtrl provides initial fix
     if (navCtrl && Array.isArray(navCtrl.hereInitial)) return navCtrl.hereInitial;
 
     return new Promise(function (resolve) {
-      if (!('geolocation' in navigator)) return resolve([139.767, 35.681]); // Tokyo Station fallback
+      if (!('geolocation' in navigator)) return resolve([139.767, 35.681]);
       navigator.geolocation.getCurrentPosition(
         function (pos) { resolve([pos.coords.longitude, pos.coords.latitude]); },
         function () { resolve([139.767, 35.681]); },
@@ -110,9 +96,7 @@ export function setupStartStop(els, navCtrl, hooks) {
     });
   }
 
-  // ---- Start / Stop / Follow ----
   async function onStart(searchApi) {
-    // Unlock speech early (Android)
     try { if (window.TTS && typeof window.TTS.unlockOnce === 'function') window.TTS.unlockOnce(); } catch (e) {}
 
     try {
@@ -122,20 +106,18 @@ export function setupStartStop(els, navCtrl, hooks) {
       var here = await resolveHere();
       var goalName = (els && els.addr && typeof els.addr.value === 'string' && els.addr.value.trim()) ? els.addr.value.trim() : '目的地';
 
-      // Hook: goal fixed
       try {
         if (hooks && typeof hooks.onGoalFixed === 'function') {
           hooks.onGoalFixed({ name: goalName, lng: Number(goal[0]), lat: Number(goal[1]) });
         }
       } catch (e) {}
 
-      // Wire destination then start
       try {
         if (navCtrl && typeof navCtrl.setDestination === 'function') {
           navCtrl.setDestination({ lng: Number(goal[0]), lat: Number(goal[1]), label: goalName });
         }
         if (navCtrl && typeof navCtrl.start === 'function') {
-          await navCtrl.start(); // nav.js handles actual start from current position
+          await navCtrl.start();
         }
       } catch (eStart) {
         console.error(eStart);
@@ -143,10 +125,8 @@ export function setupStartStop(els, navCtrl, hooks) {
         return;
       }
 
-      // Show maneuver panel
       if (manEl && manEl.style) manEl.style.display = '';
 
-      // Enable follow toggle UI
       if (els && els.btnFollowToggle && els.btnFollowToggle.style) {
         els.btnFollowToggle.style.display = '';
         state._followHeading = true;
@@ -160,7 +140,6 @@ export function setupStartStop(els, navCtrl, hooks) {
 
       if (els && els.btnStop) els.btnStop.disabled = false;
 
-      // Hooks
       try {
         if (hooks && typeof hooks.onStarted === 'function') {
           hooks.onStarted({ name: goalName, lng: Number(goal[0]), lat: Number(goal[1]) });
@@ -172,7 +151,6 @@ export function setupStartStop(els, navCtrl, hooks) {
 
       toast('ナビを開始しました');
 
-      // TTS start announcement
       try {
         if (window.TTS && typeof window.TTS.unlockOnce === 'function') window.TTS.unlockOnce();
         if (window.TTS && typeof window.TTS.speak === 'function') window.TTS.speak('ナビを開始します');
@@ -189,12 +167,10 @@ export function setupStartStop(els, navCtrl, hooks) {
 
     state.goalLngLat = null;
 
-    // Hide panels and disable buttons
     if (manEl && manEl.style) manEl.style.display = 'none';
     if (els && els.btnFollowToggle && els.btnFollowToggle.style) els.btnFollowToggle.style.display = 'none';
     if (els && els.btnStop) els.btnStop.disabled = true;
 
-    // Hooks
     try {
       if (hooks && typeof hooks.onTick === 'function') {
         hooks.onTick({ distanceLeftMeters: NaN, eta: null, status: '待機中' });
@@ -205,7 +181,6 @@ export function setupStartStop(els, navCtrl, hooks) {
   }
 
   function onFollowToggle() {
-    // Toggle between heading and north-fixed
     state._followHeading = !state._followHeading;
     var mode = state._followHeading ? 'heading' : 'north';
 
@@ -221,7 +196,6 @@ export function setupStartStop(els, navCtrl, hooks) {
     toast(state._followHeading ? '追従を有効にしました' : '追従を停止しました');
   }
 
-  // Center map to current position and enable follow (zoom default 17)
   async function centerLikeStart(mapCtrl, opt) {
     opt = opt || {};
     var here = await resolveHere();
@@ -244,7 +218,6 @@ export function setupStartStop(els, navCtrl, hooks) {
       if (m && typeof m.setZoom === 'function') m.setZoom(z);
     }
 
-    // Enable follow
     try {
       state._followHeading = true;
       if (window.mapCtrl && typeof window.mapCtrl.setFollowMode === 'function') {
