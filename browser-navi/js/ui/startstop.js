@@ -1,141 +1,255 @@
+// js/ui/startstop.js (drop-in replacement)
+// ES5-compatible (no optional chaining / nullish). Android WebView safe.
+// Aligns with nav.js that exposes: navCtrl.setDestination({lng,lat,label}), navCtrl.start(), navCtrl.stop().
+// Comments in English only.
+
 import { toast } from './dom.js';
 import { API_BASE } from '../../config.js';
-import { withBackoff } from '../libs/net.js';
 
-export function setupStartStop(els, navCtrl, hooks){
-  const state = { goalLngLat: null, _offProgress: null };
+// Simple fetch with backoff (local impl to avoid external dependency)
+async function fetchWithBackoff(factory, opts) {
+  var retries = (opts && opts.retries != null) ? opts.retries : 2;
+  var base = (opts && opts.base != null) ? opts.base : 300;
+  var i = 0, lastErr = null;
+  for (i = 0; i <= retries; i++) {
+    try {
+      var res = await factory();
+      return res;
+    } catch (e) {
+      lastErr = e;
+      if (i === retries) break;
+      await new Promise(function (rs) { setTimeout(rs, base * Math.pow(2, i)); });
+    }
+  }
+  throw lastErr;
+}
 
-  
-  const manEl = document.getElementById('maneuver');
-  if (manEl) manEl.style.display = 'none';
+export function setupStartStop(els, navCtrl, hooks) {
+  var state = { goalLngLat: null, _followHeading: true };
 
-  async function geocode(text){
-    const url = `${API_BASE}/geocode?text=${encodeURIComponent(text)}`;
-    const res = await withBackoff(() => fetch(url, { headers: { Accept: 'application/json' } }), { retries: 1, base: 300 });
-    if (!res.ok) throw new Error(`geocode http ${res.status}`);
-    const data = await res.json();
-    const featureToLL = (f)=> { const c = f?.geometry?.coordinates; return c && { lon: Number(c[0]), lat: Number(c[1]) }; };
-    const first = Array.isArray(data) ? data[0]
-      : Array.isArray(data?.results) ? data.results[0]
-      : Array.isArray(data?.data) ? data.data[0]
-      : Array.isArray(data?.features) ? featureToLL(data.features[0])
-      : Array.isArray(data?.items) ? data.items[0]
-      : Array.isArray(data?.places) ? data.places[0]
-      : Array.isArray(data?.nominatim) ? data.nominatim[0]
-      : null;
+  // Maneuver panel (hidden until start)
+  var manEl = document.getElementById('maneuver');
+  if (manEl && manEl.style) manEl.style.display = 'none';
+
+  // ---- Geocode ----
+  async function geocode(text) {
+    var url = API_BASE.replace(/\/+$/, '') + '/geocode?text=' + encodeURIComponent(text);
+    var res = await fetchWithBackoff(function () {
+      return fetch(url, { headers: { 'Accept': 'application/json' } });
+    }, { retries: 1, base: 300 });
+
+    if (!res.ok) throw new Error('geocode http ' + res.status);
+    var data = await res.json();
+
+    // Normalize to {lon, lat}
+    function featureToLL(f) {
+      var c = f && f.geometry && f.geometry.coordinates;
+      if (c && c.length >= 2) return { lon: Number(c[0]), lat: Number(c[1]) };
+      return null;
+    }
+
+    var first = null;
+    if (Array.isArray(data)) first = data[0];
+    else if (data && Array.isArray(data.results)) first = data.results[0];
+    else if (data && Array.isArray(data.data)) first = data.data[0];
+    else if (data && Array.isArray(data.features)) first = featureToLL(data.features[0]);
+    else if (data && Array.isArray(data.items)) first = data.items[0];
+    else if (data && Array.isArray(data.places)) first = data.places[0];
+    else if (data && Array.isArray(data.nominatim)) first = data.nominatim[0];
+
     if (!first) return null;
-    const lng = Number(first.lon ?? first.lng ?? first.longitude ?? first.center?.[0]);
-    const lat = Number(first.lat ?? first.latitude ?? first.center?.[1]);
+
+    var lng = Number(
+      (first.lon != null ? first.lon :
+      (first.lng != null ? first.lng :
+      (first.longitude != null ? first.longitude :
+      (first.center && first.center[0] != null ? first.center[0] : NaN)))))
+    );
+    var lat = Number(
+      (first.lat != null ? first.lat :
+      (first.latitude != null ? first.latitude :
+      (first.center && first.center[1] != null ? first.center[1] : NaN)))
+    );
+
+    if (!isFinite(lng) || !isFinite(lat)) return null;
     return [lng, lat];
   }
 
-  async function ensureGoal(searchApi){
-    if (searchApi?.state?.goalLngLat) {
-      state.goalLngLat = searchApi.state.goalLngLat;
+  // ---- Goal / Here resolvers ----
+  async function ensureGoal(searchApi) {
+    // 1) prefer from searchApi.state.goalLngLat
+    var fromApi = (searchApi && searchApi.state && searchApi.state.goalLngLat) ? searchApi.state.goalLngLat : null;
+    if (fromApi && Array.isArray(fromApi)) {
+      state.goalLngLat = fromApi;
       return state.goalLngLat;
     }
-    if (state.goalLngLat) return state.goalLngLat;
+    // 2) cached
+    if (state.goalLngLat && Array.isArray(state.goalLngLat)) return state.goalLngLat;
 
-    const q = (els.addr?.value || '').trim();
+    // 3) from input
+    var q = (els && els.addr && typeof els.addr.value === 'string') ? els.addr.value.trim() : '';
     if (!q) return null;
-    const ll = await geocode(q);
+
+    var ll = await geocode(q);
     if (ll) state.goalLngLat = ll;
     return state.goalLngLat;
   }
 
-  async function resolveHere(){
-    if (navCtrl?.hereInitial && Array.isArray(navCtrl.hereInitial)) return navCtrl.hereInitial;
-    return new Promise((resolve)=>{
-      if (!('geolocation' in navigator)) return resolve([139.767, 35.681]); 
+  async function resolveHere() {
+    // If navCtrl provides initial fix
+    if (navCtrl && Array.isArray(navCtrl.hereInitial)) return navCtrl.hereInitial;
+
+    return new Promise(function (resolve) {
+      if (!('geolocation' in navigator)) return resolve([139.767, 35.681]); // Tokyo Station fallback
       navigator.geolocation.getCurrentPosition(
-        (pos)=>resolve([pos.coords.longitude, pos.coords.latitude]),
-        ()=>resolve([139.767, 35.681]),
+        function (pos) { resolve([pos.coords.longitude, pos.coords.latitude]); },
+        function () { resolve([139.767, 35.681]); },
         { enableHighAccuracy: true, timeout: 5000 }
       );
     });
   }
 
-  async function onStart(searchApi){
+  // ---- Start / Stop / Follow ----
+  async function onStart(searchApi) {
+    // Unlock speech early (Android)
+    try { if (window.TTS && typeof window.TTS.unlockOnce === 'function') window.TTS.unlockOnce(); } catch (e) {}
 
-    try { window.TTS?.unlock?.(); } catch {}
-    try { TTS?.unlock?.(); } catch {}
+    try {
+      var goal = await ensureGoal(searchApi);
+      if (!goal) { toast('先に目的地を検索して選択してください'); return; }
 
-    try{
-      const goal = await ensureGoal(searchApi);
-      if (!goal){ toast('先に目的地を検索して選択してください'); return; }
+      var here = await resolveHere();
+      var goalName = (els && els.addr && typeof els.addr.value === 'string' && els.addr.value.trim()) ? els.addr.value.trim() : '目的地';
 
-      const here = await resolveHere();
-      hooks?.onGoalFixed && hooks.onGoalFixed({ name: (els.addr?.value || '目的地'), lng: Number(goal[0]), lat: Number(goal[1]) });
+      // Hook: goal fixed
+      try {
+        if (hooks && typeof hooks.onGoalFixed === 'function') {
+          hooks.onGoalFixed({ name: goalName, lng: Number(goal[0]), lat: Number(goal[1]) });
+        }
+      } catch (e) {}
 
-      
-      const off = navCtrl.onProgress?.((snap)=> hooks?.onTick && hooks.onTick(snap));
+      // Wire destination then start
+      try {
+        if (navCtrl && typeof navCtrl.setDestination === 'function') {
+          navCtrl.setDestination({ lng: Number(goal[0]), lat: Number(goal[1]), label: goalName });
+        }
+        if (navCtrl && typeof navCtrl.start === 'function') {
+          await navCtrl.start(); // nav.js handles actual start from current position
+        }
+      } catch (eStart) {
+        console.error(eStart);
+        toast('ナビの開始に失敗しました');
+        return;
+      }
 
-      await navCtrl.start([here, goal]);
+      // Show maneuver panel
+      if (manEl && manEl.style) manEl.style.display = '';
 
-      if (manEl) manEl.style.display = '';
-
-      if (els.btnFollowToggle){
+      // Enable follow toggle UI
+      if (els && els.btnFollowToggle && els.btnFollowToggle.style) {
         els.btnFollowToggle.style.display = '';
-        navCtrl.setFollowEnabled?.(true);
+        state._followHeading = true;
+        try {
+          if (window.mapCtrl && typeof window.mapCtrl.setFollowMode === 'function') {
+            window.mapCtrl.setFollowMode('heading');
+          }
+        } catch (e) {}
         els.btnFollowToggle.textContent = '進行方向';
       }
-      if (els.btnStop) els.btnStop.disabled = false;
 
-      hooks?.onStarted && hooks.onStarted({ name: (els.addr?.value || '目的地'), lng: Number(goal[0]), lat: Number(goal[1]) });
-      hooks?.onTick && hooks.onTick({ status: '案内中' });
+      if (els && els.btnStop) els.btnStop.disabled = false;
 
-      state._offProgress = off;
+      // Hooks
+      try {
+        if (hooks && typeof hooks.onStarted === 'function') {
+          hooks.onStarted({ name: goalName, lng: Number(goal[0]), lat: Number(goal[1]) });
+        }
+        if (hooks && typeof hooks.onTick === 'function') {
+          hooks.onTick({ status: '案内中' });
+        }
+      } catch (e) {}
+
       toast('ナビを開始しました');
 
+      // TTS start announcement
       try {
-        window.TTS?.unlockOnce?.();
-        window.TTS?.speak?.('ナビを開始します');
-      } catch {}
+        if (window.TTS && typeof window.TTS.unlockOnce === 'function') window.TTS.unlockOnce();
+        if (window.TTS && typeof window.TTS.speak === 'function') window.TTS.speak('ナビを開始します');
+      } catch (e) {}
 
-    }catch(e){ console.error(e); toast('ナビの開始に失敗しました'); }
+    } catch (e) {
+      console.error(e);
+      toast('ナビの開始に失敗しました');
+    }
   }
 
-  function onStop(){
-    try { navCtrl.stop?.(); } catch {}
-    if (state._offProgress) { try { state._offProgress(); } catch {} state._offProgress = null; }
+  function onStop() {
+    try { if (navCtrl && typeof navCtrl.stop === 'function') navCtrl.stop(); } catch (e) {}
 
     state.goalLngLat = null;
-    try { navCtrl.setFollowEnabled?.(false); } catch {}
 
-    if (manEl) manEl.style.display = 'none';
-    if (els.btnFollowToggle) els.btnFollowToggle.style.display = 'none';
-    if (els.btnStop) els.btnStop.disabled = true;
-    hooks?.onTick && hooks.onTick({ distanceLeftMeters: NaN, eta: null, status: '待機中' });
+    // Hide panels and disable buttons
+    if (manEl && manEl.style) manEl.style.display = 'none';
+    if (els && els.btnFollowToggle && els.btnFollowToggle.style) els.btnFollowToggle.style.display = 'none';
+    if (els && els.btnStop) els.btnStop.disabled = true;
+
+    // Hooks
+    try {
+      if (hooks && typeof hooks.onTick === 'function') {
+        hooks.onTick({ distanceLeftMeters: NaN, eta: null, status: '待機中' });
+      }
+    } catch (e) {}
+
     toast('ナビを停止しました');
   }
 
-  function onFollowToggle(){
-    const next = !navCtrl.isFollowEnabled?.();
-    navCtrl.setFollowEnabled?.(next);
-    if (els.btnFollowToggle) els.btnFollowToggle.textContent = next ? '進行方向' : '北固定';
-    toast(next ? '追従を有効にしました' : '追従を停止しました');
+  function onFollowToggle() {
+    // Toggle between heading and north-fixed
+    state._followHeading = !state._followHeading;
+    var mode = state._followHeading ? 'heading' : 'north';
+
+    try {
+      if (window.mapCtrl && typeof window.mapCtrl.setFollowMode === 'function') {
+        window.mapCtrl.setFollowMode(mode);
+      }
+    } catch (e) {}
+
+    if (els && els.btnFollowToggle) {
+      els.btnFollowToggle.textContent = state._followHeading ? '進行方向' : '北固定';
+    }
+    toast(state._followHeading ? '追従を有効にしました' : '追従を停止しました');
   }
 
-  // 現在地へ寄せて追従ON + 強制ズーム（未指定は 17）
-  async function centerLikeStart(mapCtrl, opt = {}) {
-    const here = await resolveHere();
-    const z = Number.isFinite(opt.zoom) ? Number(opt.zoom) : 17;
-  
-    const m = mapCtrl?.map || mapCtrl?._map || window.__map || null;
-    if (m?.easeTo) {
+  // Center map to current position and enable follow (zoom default 17)
+  async function centerLikeStart(mapCtrl, opt) {
+    opt = opt || {};
+    var here = await resolveHere();
+    var z = (Number.isFinite && Number.isFinite(opt.zoom)) ? Number(opt.zoom) : 17;
+
+    var m = (mapCtrl && mapCtrl.map) ? mapCtrl.map
+          : (mapCtrl && mapCtrl._map) ? mapCtrl._map
+          : (window.__map ? window.__map : null);
+
+    if (m && typeof m.easeTo === 'function') {
       m.easeTo({ center: [here[0], here[1]], zoom: z, duration: 0 });
-    } else if (typeof mapCtrl?.setCenter === 'function') {
+    } else if (mapCtrl && typeof mapCtrl.setCenter === 'function') {
       mapCtrl.setCenter(here[0], here[1]);
-      if (m?.setZoom) m.setZoom(z);
-    } else if (m?.setCenter) {
+      if (m && typeof m.setZoom === 'function') m.setZoom(z);
+    } else if (m && typeof m.setCenter === 'function') {
       m.setCenter([here[0], here[1]]);
-      if (m?.setZoom) m.setZoom(z);
-    } else if (typeof mapCtrl?.flyTo === 'function') {
+      if (typeof m.setZoom === 'function') m.setZoom(z);
+    } else if (mapCtrl && typeof mapCtrl.flyTo === 'function') {
       mapCtrl.flyTo([here[0], here[1]]);
-      if (m?.setZoom) m.setZoom(z);
+      if (m && typeof m.setZoom === 'function') m.setZoom(z);
     }
-  
-    try { navCtrl.setFollowEnabled?.(true); } catch {}
+
+    // Enable follow
+    try {
+      state._followHeading = true;
+      if (window.mapCtrl && typeof window.mapCtrl.setFollowMode === 'function') {
+        window.mapCtrl.setFollowMode('heading');
+      }
+    } catch (e) {}
   }
 
   return { onStart, onStop, onFollowToggle, centerLikeStart, state };
