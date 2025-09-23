@@ -2,6 +2,15 @@ import { ensureMaplibre } from './libs/maplibre-loader.js';
 import { MapController } from './map.js';
 import { NavigationController } from './nav.js';
 import { bindUI } from './ui.js';
+import { renderQuickLists, clearHistory } from './ui/favorites.js';
+
+const btnHC = document.getElementById('history-clear');
+
+if (btnHC) {
+  btnHC.addEventListener('click', () => {
+    if (confirm('履歴を全消去しますか？')) clearHistory();
+  });
+}
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js', { scope: './' }).catch(() => {});

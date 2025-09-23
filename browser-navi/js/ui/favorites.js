@@ -53,11 +53,9 @@ function renderList(container, items, opt = {}) {
     li.dataset.lng = String(it.lng);
     li.dataset.lat = String(it.lat);
 
-
     const name = document.createElement('div');
     name.className = 'poi-name';
     name.textContent = it.name || '(名称未設定)';
-
 
     const actions = document.createElement('div');
     actions.className = 'poi-actions';
@@ -96,4 +94,10 @@ export function renderQuickLists(){
   const els = { fav: document.getElementById('favorites-list'), his: document.getElementById('history-list') };
   renderList(els.fav, loadFavorites(), { type: 'favorites' });
   renderList(els.his, loadHistory(),   { type: 'history' });
+}
+
+export function clearHistory() {
+  saveHistory([]);
+  toast('履歴を全消去しました');
+  renderQuickLists();
 }
