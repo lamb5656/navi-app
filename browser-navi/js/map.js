@@ -63,8 +63,12 @@ export class MapController {
     this.map = null;
     this.userMarker = null;
 
-    // ☆ 追加：ユーザー操作フック
+    // ユーザー操作フック
     this._onUserInteract = null;
+
+    // ★ 追加: 追従時のターゲットズーム（「開始」時に寄りすぎない/遠すぎないバランス）
+    // デフォルトは 16.5（車向け）。歩きなら 17 �〜 18 が目安。
+    this.followZoom = 16.5;
   }
 
   async init(containerId = 'map') {
@@ -76,8 +80,7 @@ export class MapController {
           type: 'raster',
           tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
           tileSize: 256,
-          attribution:
-            '© OpenStreetMap contributors'
+          attribution: '© OpenStreetMap contributors'
         }
       },
       layers: [{ id: 'osm', type: 'raster', source: 'osm' }]
@@ -98,7 +101,7 @@ export class MapController {
 
     ensureRouteSource(this.map);
 
-    // ☆ 追加：ユーザーの手動操作を検知してコールバック（スマホの「勝手に戻る」抑制）
+    // ユーザーの手動操作を検知してコールバック（スマホの「勝手に戻る」抑制）
     const fireInteract = () => { try { this._onUserInteract && this._onUserInteract(); } catch {} };
     // ユーザー起因の操作イベント群（プログラム操作の movestart は拾わない）
     ['dragstart', 'zoomstart', 'rotatestart', 'pitchstart'].forEach(ev => {
@@ -113,10 +116,16 @@ export class MapController {
     if (!defaultController) defaultController = this;
   }
 
-  // ☆ 追加：UI から登録できるフック
+  // UI から登録できるフック
   onUserInteract(cb) { this._onUserInteract = typeof cb === 'function' ? cb : null; }
 
-  // ☆ 追加：センター移動のユーティリティ（実装差吸収用）
+  // ★ 追加: 追従ズームを外部から変更したいとき用
+  setFollowZoom(z){
+    const n = Number(z);
+    if (Number.isFinite(n) && n > 0) this.followZoom = n;
+  }
+
+  // センター移動のユーティリティ（実装差吸収用）
   setCenter(lng, lat) {
     if (!this.map) return;
     if (typeof this.map.jumpTo === 'function') this.map.jumpTo({ center: [lng, lat] });
@@ -147,6 +156,11 @@ export class MapController {
     if (src) src.setData({ type: 'FeatureCollection', features: [] });
   }
 
+  /**
+   * 追従（現在地マーカー更新 + 必要ならセンタリング）
+   * - zoom が未指定でも、現在のズームが「追従ターゲット（followZoom）」より低ければ引き上げる。
+   *   → 「開始」直後に遠すぎる見え方を自動で解消。
+   */
   followUser([lng, lat], { center = true, zoom = null } = {}) {
     if (!this.map) return;
     if (!this.userMarker) {
@@ -160,9 +174,17 @@ export class MapController {
     } else {
       this.userMarker.setLngLat([lng, lat]);
     }
+
     if (center) {
       const opts = { duration: 400 };
-      if (typeof zoom === 'number') opts.zoom = zoom;
+      // ★ ここが肝：zoomが明示されていない場合でも、遠すぎるなら followZoom まで引き上げる
+      if (typeof zoom === 'number') {
+        opts.zoom = zoom;
+      } else {
+        const cur = this.map.getZoom?.() ?? 12;
+        const target = Number.isFinite(this.followZoom) ? this.followZoom : 16.5;
+        if (cur < target) opts.zoom = target;
+      }
       this.map.easeTo({ center: [lng, lat], ...opts });
     }
   }
