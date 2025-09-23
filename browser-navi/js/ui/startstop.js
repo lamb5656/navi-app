@@ -63,7 +63,7 @@ export function setupStartStop(els, navCtrl, hooks) {
       (first.lon != null ? first.lon :
       (first.lng != null ? first.lng :
       (first.longitude != null ? first.longitude :
-      (first.center && first.center[0] != null ? first.center[0] : NaN)))))
+      (first.center && first.center[0] != null ? first.center[0] : NaN))))
     );
     var lat = Number(
       (first.lat != null ? first.lat :
