@@ -105,10 +105,8 @@ async function searchNominatim(rawInput, nearLngLat) {
 
   const looksAddress = /[0-9\-]|丁目|番地|号/.test(q);
 
-
   let { ok, status, data } = await fetchJson(`${API_BASE}/geocode?${base.toString()}`);
   let arr = toArray(data);
-
 
   if ((!arr || !arr.length) && nearLngLat && Number.isFinite(nearLngLat[0]) && Number.isFinite(nearLngLat[1])) {
     const p2 = new URLSearchParams(base);
@@ -117,7 +115,6 @@ async function searchNominatim(rawInput, nearLngLat) {
     ({ ok, status, data } = await fetchJson(`${API_BASE}/geocode?${p2.toString()}`));
     arr = toArray(data);
   }
-
 
   if ((!arr || !arr.length) && looksAddress) {
     const p3 = new URLSearchParams(base);
@@ -128,7 +125,6 @@ async function searchNominatim(rawInput, nearLngLat) {
     ({ ok, status, data } = await fetchJson(`${API_BASE}/geocode?${p3.toString()}`));
     arr = toArray(data);
   }
-
 
   if (!arr || !arr.length) {
     const qParams = new URLSearchParams();
@@ -198,7 +194,6 @@ export function setupSearch(els, mapCtrl) {
       }
       return cand;
     }).filter(x => Number.isFinite(x.lat) && Number.isFinite(x.lng));
-
 
     list.sort((a, b) => (b.score - a.score) || ((a.__distanceKm || 0) - (b.__distanceKm || 0)));
 

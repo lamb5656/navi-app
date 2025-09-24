@@ -34,10 +34,8 @@ export function bindUI(mapCtrl, navCtrl){
     avoidTollsToolbar: $('avoidTolls'),
   };
 
-
   const hud = createHUD();
   const hudSink = (snap) => hud.update(snap);
-
 
   const searchApi = setupSearch(els, mapCtrl);
   setupSettings(els);
@@ -47,7 +45,6 @@ export function bindUI(mapCtrl, navCtrl){
     onStarted:   (place) => { addHistory(place); renderQuickLists(); },
     onTick:      (snap)  => { hudSink(snap); }
   });
-
 
   els.btnSearch   && els.btnSearch.addEventListener('click', (e)=>{ e.preventDefault(); searchApi.onSearch(); });
   els.addr        && els.addr.addEventListener('keydown', (e)=>{ if (e.key==='Enter'){ e.preventDefault(); searchApi.onSearch(); } });
@@ -66,7 +63,6 @@ export function bindUI(mapCtrl, navCtrl){
   els.btnStop          && els.btnStop.addEventListener('click',   (e)=>{ e.preventDefault(); routeApi.onStop(); });
   els.btnFollowToggle  && els.btnFollowToggle.addEventListener('click', (e)=>{ e.preventDefault(); routeApi.onFollowToggle(); });
 
-
   els.btnRecenter && els.btnRecenter.addEventListener('click', async (e)=>{
     e.preventDefault();
     try{
@@ -78,14 +74,12 @@ export function bindUI(mapCtrl, navCtrl){
     }
   });
 
-
   try {
     mapCtrl.onUserInteract?.(() => {
       try { navCtrl.setFollowEnabled(false); } catch {}
       if (els.btnFollowToggle) els.btnFollowToggle.textContent = '北固定';
     });
   } catch {}
-
 
   if (els.btnFavCurrent){
     els.btnFavCurrent.addEventListener('click', (e)=>{
@@ -95,7 +89,6 @@ export function bindUI(mapCtrl, navCtrl){
   }
 
   renderQuickLists();
-
 
   function findGoButton(target){
     if (!(target instanceof Element)) return null;

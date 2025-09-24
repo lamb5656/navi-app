@@ -46,7 +46,6 @@ if ('serviceWorker' in navigator) {
       }
     });
 
-
     if ('geolocation' in navigator && typeof navCtrl.setHereInitial === 'function') {
       navigator.geolocation.getCurrentPosition(
         (pos) => {

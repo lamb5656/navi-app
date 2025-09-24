@@ -32,7 +32,6 @@ export function createHUD() {
     if (els.eta)        els.eta.textContent        = formatEta(data.eta);
     if (els.status && typeof data.status === 'string') els.status.textContent = data.status;
 
-    // 追加分：次の案内
     if (els.nextDist) els.nextDist.textContent = formatNextDistance(data.nextTurnDistanceMeters);
     if (els.nextText) els.nextText.textContent = (typeof data.nextTurnText === 'string' && data.nextTurnText.length) ? data.nextTurnText : '';
   }

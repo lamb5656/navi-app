@@ -1,136 +1,111 @@
 <!doctype html>
 <html lang="ja">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>SwitchVoiceNavi — ブラウザで動く音声ナビ</title>
-  <meta name="description" content="MapLibre × OpenRouteService。音声案内、リルート、HUD、料金回避、PWA対応のブラウザナビ。">
-  <meta name="theme-color" content="#0f172a">
-  <link rel="manifest" href="./manifest.json">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <link href="./vendor/maplibre-gl.css" rel="stylesheet">
-  <link href="./styles.css" rel="stylesheet">
+  <meta name="description" content="MapLibre × OpenRouteService。音声案内、リルート、HUD、料金回避、PWA対応のブラウザナビ。" />
+  <meta name="theme-color" content="#0f172a" />
+  <link rel="manifest" href="./manifest.json" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+  <link href="./vendor/maplibre-gl.css" rel="stylesheet" />
+  <script src="./vendor/maplibre-gl.js"></script>
+
+  <link href="./styles.css" rel="stylesheet" />
+  <style>
+    :root { --bg:#0f172a; --panel:#0b1220; --text:#e5e7eb; --muted:#9ca3af; --accent:#38bdf8; }
+    html,body { height:100%; margin:0; background:#000; color:var(--text); font-family:system-ui,-apple-system,Segoe UI,Roboto,'Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif; }
+    .header { position:fixed; inset:0 0 auto 0; z-index:10; background:linear-gradient(180deg, rgba(0,0,0,.75), rgba(0,0,0,.2)); padding:8px 12px; backdrop-filter: blur(6px); display:flex; gap:8px; align-items:center; }
+    .brand { font-weight:700; letter-spacing:.3px; }
+    .grow { flex:1; display:flex; gap:8px; }
+    .input { flex:1; min-width:0; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.12); color:var(--text); border-radius:10px; padding:10px 12px; outline:none; }
+    .btn { background:rgba(255,255,255,.1); color:var(--text); border:1px solid rgba(255,255,255,.15); padding:10px 12px; border-radius:10px; cursor:pointer; }
+    .btn:active { transform:translateY(1px); }
+    .map-wrap { position:absolute; inset:0; }
+    #map { position:absolute; inset:0; }
+    .hud { position:fixed; left:12px; right:12px; bottom:12px; z-index:10; display:grid; gap:8px; }
+    .card { background:rgba(15,23,42,.85); border:1px solid rgba(255,255,255,.12); border-radius:14px; padding:12px; backdrop-filter: blur(6px); }
+    .tbt { display:flex; align-items:baseline; gap:8px; }
+    .tbt-main { font-size:20px; line-height:1.25; }
+    .tbt-sub { color:var(--muted); font-size:12px; }
+    .grid { display:grid; grid-template-columns: repeat(3, 1fr); gap:8px; }
+    .cell { text-align:center; }
+    .cell .v { font-size:18px; font-weight:700; }
+    .cell .k { font-size:11px; color:var(--muted); }
+    .sr-live { position:absolute; left:-9999px; top:auto; width:1px; height:1px; overflow:hidden; }
+    .toast { position:fixed; left:50%; bottom:90px; transform:translateX(-50%); background:#111827; color:#fff; border:1px solid #374151; padding:10px 14px; border-radius:10px; opacity:0; transition:opacity .25s; z-index:20; }
+    .settings { position:fixed; inset:0; background:rgba(0,0,0,.55); display:none; align-items:center; justify-content:center; z-index:20; }
+    .settings .panel { width:min(560px, 92vw); background:var(--panel); border:1px solid rgba(255,255,255,.12); border-radius:14px; padding:14px; display:grid; gap:12px; }
+    .row { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .row label { color:var(--muted); font-size:13px; }
+    .row select,.row input[type="checkbox"] { background:#0b1220; color:var(--text); border:1px solid rgba(255,255,255,.12); border-radius:8px; padding:8px; }
+    .actions { display:flex; justify-content:flex-end; gap:8px; }
+  </style>
 </head>
 <body>
   <header class="header">
-    <div class="header-inner">
-      <div class="brand">SwitchVoiceNavi</div>
-      <nav class="nav">
-
-        <details id="appMenu">
-          <summary aria-label="メニュー" title="メニュー">
-
-            <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M3 6h18M3 12h18M3 18h18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-            </svg>
-          </summary>
-          <div class="menu-panel" role="menu" aria-label="メニュー">
-            <section class="menu-section">
-              <h3 class="menu-title">メニュー</h3>
-              <div class="menu-actions">
-                <button id="btnOpenSettings" class="btn" type="button">設定を開く</button>
-              </div>
-            </section>
-
-
-            <section class="menu-section">
-              <h3 class="menu-title">お気に入り</h3>
-              <div class="menu-actions" style="margin-bottom:8px;">
-                <button id="btnFavCurrent" class="btn" type="button">現在の目的地を☆登録</button>
-              </div>
-              <div id="favorites-list" class="svn-chip-list"></div>
-            </section>
-
-
-            <section class="menu-section">
-              <div style="display:flex;align-items:center;gap:8px;">
-                <h3 class="menu-title" style="margin:0;">履歴</h3>
-                <button id="history-clear" class="svn-linklike" style="margin-left:auto;">全消去</button>
-              </div>
-              <div id="history-list" class="svn-chip-list"></div>
-            </section>
-          </div>
-        </details>
-
-
-        <button id="btnStop" class="btn" disabled>停止</button>
-      </nav>
+    <div class="brand">SwitchVoiceNavi</div>
+    <div class="grow">
+      <input id="search" class="input" type="search" placeholder="目的地を検索（例：名古屋駅）" autocomplete="off" />
+      <button id="btnStart" class="btn" title="ナビ開始">開始</button>
+      <button id="btnStop" class="btn" title="ナビ終了">終了</button>
+      <button id="btnSettings" class="btn" title="設定">設定</button>
     </div>
+    <button id="history-clear" class="btn" title="検索履歴クリア">履歴消去</button>
   </header>
 
-
-  <div class="toolbar">
-    <input id="addr" type="text" placeholder="目的地を検索（例：東京駅）">
-    <button id="btnSearch" class="btn">検索</button>
-    <label><input id="avoidTolls" type="checkbox"> 有料道路回避</label>
-    <button id="btnStart" class="btn primary">ナビ開始</button>
-    <button id="btnFollowToggle" class="btn" type="button">進行方向</button>
+  <div class="map-wrap">
+    <div id="map" aria-label="地図"></div>
   </div>
 
-
-  <div id="maneuver" class="maneuver" aria-live="polite" aria-atomic="true" hidden>
-    <div class="icon" id="manIcon">⤴︎</div>
-    <div class="lane">
-      <span class="lane-mark" id="lane1"></span>
-      <span class="lane-mark active" id="lane2"></span>
-      <span class="lane-mark" id="lane3"></span>
+  <section class="hud" aria-live="off">
+    <div class="card">
+      <div class="tbt">
+        <div id="hud-maneuver" class="tbt-main">準備中…</div>
+      </div>
+      <div class="tbt-sub" id="hud-next">次の案内 —</div>
     </div>
-    <div class="text">
-      <div class="dist"><b id="manDist">—</b> 先</div>
-      <div class="sub" id="manInstr">次の案内</div>
+
+    <div class="card grid">
+      <div class="cell">
+        <div class="v" id="hud-distance-km">–</div>
+        <div class="k">残距離 (km)</div>
+      </div>
+      <div class="cell">
+        <div class="v" id="hud-eta">–:–</div>
+        <div class="k">到着予想</div>
+      </div>
+      <div class="cell">
+        <div class="v" id="hud-status">待機中</div>
+        <div class="k">ステータス</div>
+      </div>
     </div>
-  </div>
+  </section>
 
+  <div id="aria-live" class="sr-live" aria-live="polite" aria-atomic="true"></div>
 
-  <button id="btnRecenter" class="fab" type="button" title="現在地へ戻る">◎</button>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-  <div id="map" aria-label="map"></div>
-
-  <div class="hud" role="status" aria-live="polite">
-    <div class="hud-inner">
-      <div class="stat">残距離 <b id="remainKm">–</b> km</div>
-      <div class="stat">到着予想 <b id="eta">–:–</b></div>
-      <div class="stat">状態 <span id="status">待機中</span></div>
-    </div>
-  </div>
-
-  <div id="toast" class="toast"></div>
-
-
-  <div id="searchCard" class="card" aria-modal="true" role="dialog">
-    <header>検索候補</header>
-    <div class="body" id="searchList"></div>
-  </div>
-
-
-  <div id="settingsCard" class="card settings" role="dialog" aria-modal="true">
-    <header>設定</header>
-    <div class="body">
-      <div class="row"><label><input id="setAvoidTolls" type="checkbox"> 有料道路を回避</label></div>
+  <div class="settings" id="settings">
+    <div class="panel">
+      <h3 style="margin:0;font-size:16px;">設定</h3>
       <div class="row">
-        <label>プロフィール
-          <select id="setProfile">
-            <option value="driving-car">車</option>
-            <option value="foot-walking">徒歩</option>
-            <option value="cycling-regular">自転車</option>
-          </select>
-        </label>
+        <label for="sel-voice">音声</label>
+        <select id="sel-voice"></select>
       </div>
       <div class="row">
-        <label>TTS 音量 <input id="setTtsVolume" type="range" min="0" max="1" step="0.1"></label>
+        <label for="chk-avoid-toll">有料道路回避</label>
+        <input id="chk-avoid-toll" type="checkbox" />
       </div>
       <div class="row">
-        <label>TTS 速度 <input id="setTtsRate" type="range" min="0.5" max="1.5" step="0.1"></label>
-      </div>
-      <div class="row">
-        <label>テーマ
-          <select id="setTheme">
-            <option value="auto">自動</option>
-            <option value="light">ライト</option>
-            <option value="dark">ダーク</option>
-          </select>
-        </label>
+        <label for="sel-theme">テーマ</label>
+        <select id="sel-theme">
+          <option value="system">システム</option>
+          <option value="light">ライト</option>
+          <option value="dark">ダーク</option>
+        </select>
       </div>
       <div class="actions">
         <button id="btnSettingsClose" class="btn">閉じる</button>
@@ -138,6 +113,9 @@
     </div>
   </div>
 
+  <script type="module" src="./js/map.js"></script>
+  <script type="module" src="./js/nav.js"></script>
+  <script type="module" src="./js/ui/hud.js"></script>
   <script type="module" src="./js/main.js"></script>
 </body>
 </html>

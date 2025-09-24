@@ -82,7 +82,6 @@ function extractSummaryFromORS(r0){
   return {distance:dist, duration:dur};
 }
 
-// OSRM helper
 function extractFromOSRM(data){
   var out={coords:[], distance:NaN, duration:NaN};
   if(!data||!data.routes||!data.routes[0]) return out;
@@ -93,7 +92,6 @@ function extractFromOSRM(data){
   return out;
 }
 
-// ORS FeatureCollection helper
 function extractFromORSFeatureCollection(data){
   const out = { coords: [], distance: NaN, duration: NaN };
   if (!data || data.type !== 'FeatureCollection' || !Array.isArray(data.features) || !data.features[0]) return out;
@@ -109,7 +107,6 @@ function extractFromORSFeatureCollection(data){
   return out;
 }
 
-// ---- step extractors ----
 function extractStepsFromORSFeatureCollection(data){
   const steps = [];
   if (!data || data.type!=='FeatureCollection' || !data.features || !data.features[0]) return steps;
@@ -177,7 +174,6 @@ function extractStepsFromOSRM(data){
   return steps;
 }
 
-// ---- TTS ----
 var TTS={
   unlocked:false, wired:false,
   unlockOnce:function(){
@@ -196,7 +192,6 @@ var TTS={
 TTS.wire();
 window.TTS = window.TTS || TTS;
 
-// ---- HUD bus ----
 function emitHud(remainMeters, etaSeconds, statusJa, nextText, nextDistM){
   var detail = {
     distanceLeftMeters: (isFinite(remainMeters) && remainMeters >= 0) ? remainMeters : NaN,
@@ -208,7 +203,6 @@ function emitHud(remainMeters, etaSeconds, statusJa, nextText, nextDistM){
   try { window.dispatchEvent(new CustomEvent('hud:update', { detail })); } catch (e) {}
 }
 
-// ---- NavigationController ----
 export class NavigationController {
   constructor(mapCtrl){
     this.mapCtrl = mapCtrl;
@@ -219,18 +213,16 @@ export class NavigationController {
     this.totalM = NaN;
     this.totalS = NaN;
 
-    // TBT
-    this.routeSteps = [];     // [{idx, from, to, text}]
-    this._stepSpoken = {};    // idx -> {pre:true, main:true}
-    this._preAnnounceDistM = 120; // 事前案内
-    this._nearAnnounceM    = 25;  // 直前/直上
+    this.routeSteps = [];
+    this._stepSpoken = {};
+    this._preAnnounceDistM = 200;
+    this._nearAnnounceM    = 25;
 
-    // HUD: 次案内の表示用
     this._nextTurnText = null;
     this._nextTurnDistM = NaN;
 
-    this.hereInitial = null; // [lng,lat]
-    this.hereLast    = null; // {lng,lat}
+    this.hereInitial = null;
+    this.hereLast    = null;
     this._watchId = null;
 
     this._hudTimer = null;
@@ -294,7 +286,7 @@ export class NavigationController {
       totalM = lineLengthMeters(coordsFallback);
     }
     if((!isFinite(totalS) || totalS<=0) && isFinite(totalM) && totalM>0){
-      totalS = (totalM/(50*1000))*3600; // rough 50 km/h
+      totalS = (totalM/(50*1000))*3600;
     }
 
     this.totalM = totalM;
@@ -324,7 +316,6 @@ export class NavigationController {
       var pos = self.hereLast ? self.hereLast : (self.hereInitial ? {lng:self.hereInitial[0], lat:self.hereInitial[1]} : null);
       if(!pos || !self.routeCoords || self.routeCoords.length<2) return;
 
-      // nearest vertex
       var best=-1, bestD=Infinity;
       for(var i=0;i<self.routeCoords.length;i++){
         var c=self.routeCoords[i];
@@ -332,29 +323,23 @@ export class NavigationController {
         if(d<bestD){ bestD=d; best=i; }
       }
 
-      // remaining distance
       var remain=0;
       for(var j=Math.max(0,best); j<self.routeCoords.length-1; j++){
         remain += haversineMeters({lat:self.routeCoords[j][1],lng:self.routeCoords[j][0]}, {lat:self.routeCoords[j+1][1],lng:self.routeCoords[j+1][0]});
       }
       if(!isFinite(remain)||remain<0) remain=0;
 
-      // ETA
       let etaSec=0;
       if(isFinite(self.totalM)&&self.totalM>0 && isFinite(self.totalS)&&self.totalS>0){
         etaSec = self.totalS * clamp(remain/self.totalM,0,1);
       }
 
-      // TBT（ここで次案内テキスト/距離を更新）
       try { self._updateTurnByTurn(best, bestD, pos); } catch(e){}
 
-      // status
       const status = (bestD>self._offRouteThresholdM) ? 'コース外' : '案内中';
 
-      // emit HUD（次案内も同梱）
       emitHud(remain, etaSec, status, self._nextTurnText, self._nextTurnDistM);
 
-      // auto re-route with cooldown
       if(bestD>self._offRouteThresholdM){
         var t=nowMs();
         if(t-self._lastRerouteAt>self._rerouteCooldownMs){
@@ -363,7 +348,6 @@ export class NavigationController {
         }
       }
 
-      // follow user
       try{
         if(self.mapCtrl && typeof self.mapCtrl.followUser==='function'){
           self.mapCtrl.followUser([pos.lng, pos.lat], { center:false, zoom:null });
@@ -435,11 +419,9 @@ export class NavigationController {
       distAheadM = bestVertexDistM + Math.max(0, polySegMeters(this.routeCoords, bestVertexIdx, Math.max(bestVertexIdx, startIdx)));
     }
 
-    // HUD 表示用に保持
     this._nextTurnText = step.text || null;
     this._nextTurnDistM = isFinite(distAheadM) ? Math.max(0, distAheadM) : null;
 
-    // 事前案内
     if(distAheadM<=this._preAnnounceDistM && (!this._stepSpoken[iNext] || !this._stepSpoken[iNext].pre)){
       const txt = step.text || '進みます';
       if(!/^出発します$/.test(txt) && !/^目的地に到着します$/.test(txt)){
@@ -450,7 +432,6 @@ export class NavigationController {
       }
     }
 
-    // 直前/直上案内
     if(distAheadM<=this._nearAnnounceM && (!this._stepSpoken[iNext] || !this._stepSpoken[iNext].main)){
       const txt = step.text || '進みます';
       TTS.speak(txt);
@@ -554,13 +535,12 @@ export class NavigationController {
     this._applyRoute(coords);
 
     this.active=true;
-    this._nextTurnText=null; this._nextTurnDistM=NaN; // 初期化
+    this._nextTurnText=null; this._nextTurnDistM=NaN;
     this._startGeoWatch();
     this._startHud();
 
     try{ TTS.unlockOnce(); TTS.speak('ナビを開始します'); }catch(e){}
 
-    // 初期HUD（次案内は計測後に入る）
     emitHud(this.totalM, this.totalS, '案内中', null, null);
   }
 

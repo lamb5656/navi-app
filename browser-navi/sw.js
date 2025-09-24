@@ -1,4 +1,4 @@
-const VERSION = '2025-09-24-05';
+const VERSION = '2025-09-24-06';
 const STATIC_CACHE = `svn-static-${VERSION}`;
 const RUNTIME_CACHE = `svn-runtime-${VERSION}`;
 const TILE_CACHE = `svn-tiles-${VERSION}`;
@@ -38,14 +38,11 @@ self.addEventListener('activate', (event) => {
 });
 
 
-
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   const url = req.url;
 
-
   if (req.method !== 'GET') return;
-
 
   if (isNavigation(req)) {
     event.respondWith((async () => {
@@ -64,7 +61,6 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-
   if (sameOrigin(url)) {
     event.respondWith((async () => {
       const cache = await caches.open(RUNTIME_CACHE);
@@ -82,7 +78,6 @@ self.addEventListener('fetch', (event) => {
     })());
     return;
   }
-
 
   if (isTile(url)) {
     event.respondWith((async () => {
