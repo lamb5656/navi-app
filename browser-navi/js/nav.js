@@ -106,18 +106,13 @@ var TTS={
 TTS.wire();
 window.TTS = window.TTS || TTS;
 
-// -------- HUD bus (+compat) --------
-function emitHudCompat(remainMeters, etaSeconds, statusJa){
+function emitHudForUI(remainMeters, etaSeconds, statusJa){
   var detail = {
-    // new fields
-    remainText: kmStr(remainMeters),
-    etaText: etaSeconds ? etaText(etaSeconds) : '--:--',
-    // compat fields expected by ui/hud.js
-    remainKm: isFinite(remainMeters) ? (remainMeters/1000) : NaN,
-    eta: etaSeconds ? etaText(etaSeconds) : '--:--',
+    distanceLeftMeters: (isFinite(remainMeters) && remainMeters >= 0) ? remainMeters : NaN,
+    eta: (isFinite(etaSeconds) && etaSeconds > 0) ? (Date.now() + Math.round(etaSeconds * 1000)) : null,
     status: statusJa
   };
-  try { window.dispatchEvent(new CustomEvent('hud:update',{ detail: detail })); } catch(e){}
+  try { window.dispatchEvent(new CustomEvent('hud:update', { detail: detail })); } catch (e) {}
 }
 
 // -------- NavigationController --------
@@ -223,7 +218,7 @@ export class NavigationController {
       }
 
       // send both legacy and new fields
-      emitHudCompat(remain, eta, '案内中');
+      emitHudForUI(remain, eta, '案内中');
 
       // off-route with cooldown
       if(bestD>self._offRouteThresholdM){
@@ -311,7 +306,7 @@ export class NavigationController {
       }catch(e2){
         this.stop();
         TTS.speak('ルートを取得できませんでした');
-        emitHudCompat(NaN, 0, 'エラー');
+        emitHudForUI(NaN, 0, 'エラー');
         return;
       }
     }
@@ -325,7 +320,7 @@ export class NavigationController {
     try{ TTS.unlockOnce(); TTS.speak('ナビを開始します'); }catch(e){}
 
     // initial HUD push (both styles)
-    emitHudCompat(this.totalM, this.totalS, '案内中');
+    emitHudForUI(this.totalM, this.totalS, '案内中');
   }
 
   stop(){
@@ -336,7 +331,7 @@ export class NavigationController {
     this.routeCoords=[];
     this.totalM=NaN; this.totalS=NaN;
     try{ if(this.mapCtrl && typeof this.mapCtrl.clearRoute==='function') this.mapCtrl.clearRoute(); }catch(e){}
-    emitHudCompat(NaN, 0, '待機中');
+    emitHudForUI(NaN, 0, '待機中');
     try{ if (wasActive) TTS.speak('案内を終了します'); }catch(e){}
   }
 }
