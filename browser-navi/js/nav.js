@@ -1,5 +1,9 @@
+// /browser-navi/js/nav.js
+// Android WebView friendly: no optional chaining / nullish. English-only comments.
+
 import { API_BASE } from '../config.js';
 
+// -------- utils --------
 function nowMs(){ return Date.now(); }
 function toRad(d){ return d*Math.PI/180; }
 function clamp(v,a,b){ return Math.max(a, Math.min(b,v)); }
@@ -21,6 +25,7 @@ function lineLengthMeters(coords){
 function kmStr(m){ if(!isFinite(m)) return '--'; if(m<1000) return Math.round(m)+' m'; return (m/1000).toFixed(1)+' km'; }
 function etaText(sec){ if(!isFinite(sec)||sec<=0) return '--:--'; var s=Math.round(sec), h=(s/3600)|0, m=((s%3600)/60)|0; return h>0?(h+'h '+m+'m'):(m+'m'); }
 
+// -------- polyline decode --------
 function decodePolyline(str,factor){
   var i=0, lat=0, lng=0, out=[], shift, result, byte, dlat, dlng;
   try{
@@ -82,6 +87,7 @@ function extractFromOSRM(data){
   return out;
 }
 
+// -------- TTS --------
 var TTS={
   unlocked:false, wired:false,
   unlockOnce:function(){
@@ -100,8 +106,21 @@ var TTS={
 TTS.wire();
 window.TTS = window.TTS || TTS;
 
-function emitHud(detail){ try{ window.dispatchEvent(new CustomEvent('hud:update',{detail})); }catch(e){} }
+// -------- HUD bus (+compat) --------
+function emitHudCompat(remainMeters, etaSeconds, statusJa){
+  var detail = {
+    // new fields
+    remainText: kmStr(remainMeters),
+    etaText: etaSeconds ? etaText(etaSeconds) : '--:--',
+    // compat fields expected by ui/hud.js
+    remainKm: isFinite(remainMeters) ? (remainMeters/1000) : NaN,
+    eta: etaSeconds ? etaText(etaSeconds) : '--:--',
+    status: statusJa
+  };
+  try { window.dispatchEvent(new CustomEvent('hud:update',{ detail: detail })); } catch(e){}
+}
 
+// -------- NavigationController --------
 export class NavigationController {
   constructor(mapCtrl){
     this.mapCtrl = mapCtrl;
@@ -112,8 +131,8 @@ export class NavigationController {
     this.totalM = NaN;
     this.totalS = NaN;
 
-    this.hereInitial = null;
-    this.hereLast    = null;
+    this.hereInitial = null; // [lng,lat], set by main.js
+    this.hereLast    = null; // {lng,lat}, updated by geolocation watch
     this._watchId = null;
 
     this._hudTimer = null;
@@ -170,7 +189,7 @@ export class NavigationController {
       if(coords && coords.length>1){
         var L=lineLengthMeters(coords);
         if(!isFinite(this.totalM)||!(this.totalM>0)) this.totalM=L;
-        if(!isFinite(this.totalS)||!(this.totalS>0)) this.totalS=(L/(50*1000))*3600;
+        if(!isFinite(this.totalS)||!(this.totalS>0)) this.totalS=(L/(50*1000))*3600; // 50km/h rough
       }
     }
   }
@@ -183,6 +202,7 @@ export class NavigationController {
       var pos = self.hereLast ? self.hereLast : (self.hereInitial ? {lng:self.hereInitial[0], lat:self.hereInitial[1]} : null);
       if(!pos) return;
 
+      // nearest progress
       var best=-1, bestD=Infinity;
       for(var i=0;i<self.routeCoords.length;i++){
         var c=self.routeCoords[i];
@@ -190,8 +210,9 @@ export class NavigationController {
         if(d<bestD){ bestD=d; best=i; }
       }
 
+      // remaining and ETA
       var remain=0;
-      for(var j=best;j<self.routeCoords.length-1;j++){
+      for(var j=Math.max(0,best); j<self.routeCoords.length-1; j++){
         remain += haversineMeters({lat:self.routeCoords[j][1],lng:self.routeCoords[j][0]}, {lat:self.routeCoords[j+1][1],lng:self.routeCoords[j+1][0]});
       }
       if(!isFinite(remain)||remain<0) remain=0;
@@ -201,8 +222,10 @@ export class NavigationController {
         eta = self.totalS * clamp(remain/self.totalM,0,1);
       }
 
-      emitHud({ remainMeters: remain, remainText: kmStr(remain), etaText: etaText(eta), status: self.active?'navigating':'idle' });
+      // send both legacy and new fields
+      emitHudCompat(remain, eta, '案内中');
 
+      // off-route with cooldown
       if(bestD>self._offRouteThresholdM){
         var t=nowMs();
         if(t-self._lastRerouteAt>self._rerouteCooldownMs){
@@ -288,7 +311,7 @@ export class NavigationController {
       }catch(e2){
         this.stop();
         TTS.speak('ルートを取得できませんでした');
-        emitHud({ remainMeters:0, remainText:'--', etaText:'--:--', status:'error' });
+        emitHudCompat(NaN, 0, 'エラー');
         return;
       }
     }
@@ -301,7 +324,8 @@ export class NavigationController {
 
     try{ TTS.unlockOnce(); TTS.speak('ナビを開始します'); }catch(e){}
 
-    emitHud({ remainMeters:this.totalM, remainText:kmStr(this.totalM), etaText:etaText(this.totalS), status:'navigating' });
+    // initial HUD push (both styles)
+    emitHudCompat(this.totalM, this.totalS, '案内中');
   }
 
   stop(){
@@ -312,7 +336,7 @@ export class NavigationController {
     this.routeCoords=[];
     this.totalM=NaN; this.totalS=NaN;
     try{ if(this.mapCtrl && typeof this.mapCtrl.clearRoute==='function') this.mapCtrl.clearRoute(); }catch(e){}
-    emitHud({ remainMeters:0, remainText:'--', etaText:'--:--', status:'idle' });
+    emitHudCompat(NaN, 0, '待機中');
     try{ if (wasActive) TTS.speak('案内を終了します'); }catch(e){}
   }
 }
