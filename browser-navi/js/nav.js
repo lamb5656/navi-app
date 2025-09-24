@@ -18,6 +18,17 @@ function lineLengthMeters(coords){
   }
   return sum;
 }
+function polySegMeters(coords,a,b){
+  if(!coords||coords.length<2) return 0;
+  var s=0;
+  for(var i=Math.max(0,a); i<Math.min(coords.length-1,b); i++){
+    s += haversineMeters(
+      {lat:coords[i][1],lng:coords[i][0]},
+      {lat:coords[i+1][1],lng:coords[i+1][0]}
+    );
+  }
+  return s;
+}
 
 function decodePolyline(str,factor){
   var i=0, lat=0, lng=0, out=[], shift, result, byte, dlat, dlng;
@@ -99,6 +110,77 @@ function extractFromORSFeatureCollection(data){
   return out;
 }
 
+// ---- step extractors ----
+function extractStepsFromORSFeatureCollection(data){
+  const steps = [];
+  if (!data || data.type!=='FeatureCollection' || !data.features || !data.features[0]) return steps;
+  const seg = data.features[0].properties && data.features[0].properties.segments && data.features[0].properties.segments[0];
+  if (!seg || !Array.isArray(seg.steps)) return steps;
+  for (let i=0;i<seg.steps.length;i++){
+    const s = seg.steps[i];
+    const wp = Array.isArray(s.way_points)? s.way_points : [];
+    steps.push({
+      idx:i,
+      from: Number.isFinite(wp[0]) ? wp[0] : null,
+      to: Number.isFinite(wp[1]) ? wp[1] : null,
+      text: s.instruction || ''
+    });
+  }
+  return steps;
+}
+function extractStepsFromORSRoute(r0){
+  const steps=[];
+  const seg = r0 && r0.segments && r0.segments[0];
+  if (!seg || !Array.isArray(seg.steps)) return steps;
+  for (let i=0;i<seg.steps.length;i++){
+    const s=seg.steps[i];
+    const wp = Array.isArray(s.way_points)? s.way_points : [];
+    steps.push({
+      idx:i,
+      from: Number.isFinite(wp[0]) ? wp[0] : null,
+      to: Number.isFinite(wp[1]) ? wp[1] : null,
+      text: s.instruction || ''
+    });
+  }
+  return steps;
+}
+function osrmStepText(step){
+  try{
+    const m = step.maneuver || {};
+    const type = m.type || '';
+    const mod  = m.modifier || '';
+    const name = step.name || '';
+    const toward = step.destinations || step.ref || '';
+    const dir = (mod==='left'?'左':mod==='slight left'?'やや左':mod==='right'?'右':mod==='slight right'?'やや右':mod==='straight'?'直進':'');
+    if(type==='depart') return '出発します';
+    if(type==='arrive') return '目的地に到着します';
+    if(type==='turn' || type==='end of road'){
+      return (dir? (dir+'に曲がります') : '曲がります') + (name? '（'+name+'）':'');
+    }
+    if(type==='continue') return '直進します';
+    if(type==='roundabout') return 'ランプに入ります';
+    if(type==='fork') return (dir? (dir+'方向へ分岐します'):'分岐します');
+    if(type==='merge') return '合流します';
+    if(type==='on ramp') return 'ランプに入ります';
+    if(type==='off ramp') return 'ランプを降ります';
+    return (name? '次は'+name+'へ':'進みます');
+  }catch(e){ return '進みます'; }
+}
+function extractStepsFromOSRM(data){
+  const steps=[];
+  try{
+    const legs = data && data.routes && data.routes[0] && data.routes[0].legs;
+    const st = legs && legs[0] && legs[0].steps;
+    if(!Array.isArray(st)) return steps;
+    // OSRMは way_points の代わりに各 step の geometry 長からインデックス推定が必要だが、
+    // ここではインデックス不明でも TTS 用に順序だけ扱う（距離計算は近似）に留める
+    for(let i=0;i<st.length;i++){
+      steps.push({ idx:i, from:null, to:null, text: osrmStepText(st[i]) });
+    }
+  }catch(e){}
+  return steps;
+}
+
 // ---- TTS ----
 var TTS={
   unlocked:false, wired:false,
@@ -139,6 +221,12 @@ export class NavigationController {
     this.totalM = NaN;
     this.totalS = NaN;
 
+    // TBT
+    this.routeSteps = [];     // [{idx, from, to, text}]
+    this._stepSpoken = {};    // idx -> {pre:true, main:true}
+    this._preAnnounceDistM = 120; // 事前案内
+    this._nearAnnounceM    = 25;  // 直前/直上
+
     this.hereInitial = null; // [lng,lat]
     this.hereLast    = null; // {lng,lat}
     this._watchId = null;
@@ -173,7 +261,6 @@ export class NavigationController {
     let fc;
     if (coordsOrFc && coordsOrFc.type==='FeatureCollection') {
       fc = coordsOrFc;
-      // set coords from fc for internal metrics
       const ext = extractFromORSFeatureCollection(fc);
       this.routeCoords = ext.coords || [];
       if (!isFinite(this.totalM) || !(this.totalM>0)) this.totalM = ext.distance;
@@ -217,6 +304,23 @@ export class NavigationController {
     return coordsFallback;
   }
 
+  _captureStepsFromAny(data){
+    this.routeSteps = [];
+    this._stepSpoken = {};
+    // ORS FeatureCollection
+    if (data && data.type==='FeatureCollection'){
+      this.routeSteps = extractStepsFromORSFeatureCollection(data);
+      return;
+    }
+    // ORS routes[0]
+    const r0 = data && data.routes && data.routes[0];
+    const orsSteps = extractStepsFromORSRoute(r0);
+    if (orsSteps.length){ this.routeSteps = orsSteps; return; }
+    // OSRM fallback (without precise indices)
+    const osrmSteps = extractStepsFromOSRM(data);
+    if (osrmSteps.length){ this.routeSteps = osrmSteps; }
+  }
+
   _startHud(){
     var self=this;
     if(this._hudTimer) clearInterval(this._hudTimer);
@@ -249,6 +353,9 @@ export class NavigationController {
       // status & emit
       const status = (bestD>self._offRouteThresholdM) ? 'コース外' : '案内中';
       emitHud(remain, etaSec, status);
+
+      // turn-by-turn check
+      try { self._updateTurnByTurn(best, bestD, pos); } catch(e){}
 
       // auto re-route with cooldown
       if(bestD>self._offRouteThresholdM){
@@ -293,6 +400,59 @@ export class NavigationController {
     this._watchId=null;
   }
 
+  _nextStepIndexFromVertex(vIdx){
+    if(!Array.isArray(this.routeSteps) || !this.routeSteps.length) return -1;
+    for(let i=0;i<this.routeSteps.length;i++){
+      const s=this.routeSteps[i];
+      const start = Number.isFinite(s.from)? s.from : null;
+      if(start==null){ // OSRM fallback: no indices → pick next unspoken
+        if(!this._stepSpoken[i] || !this._stepSpoken[i].main) return i;
+      }else{
+        if(start>=vIdx && (!this._stepSpoken[i] || !this._stepSpoken[i].main)) return i;
+      }
+    }
+    return -1;
+  }
+
+  _updateTurnByTurn(bestVertexIdx, bestVertexDistM, pos){
+    if(!this.routeCoords || this.routeCoords.length<2) return;
+
+    const iNext = this._nextStepIndexFromVertex(bestVertexIdx);
+    if(iNext<0) return;
+
+    const step = this.routeSteps[iNext] || {};
+    const startIdx = Number.isFinite(step.from)? step.from : null;
+    let distAheadM = 0;
+
+    if(startIdx==null){
+      // OSRM fallback（正確なインデックス無し）→ 残距離から粗く分配（過剰案内回避のため閾値小さめ）
+      distAheadM = Math.max(0, polySegMeters(this.routeCoords, bestVertexIdx, this.routeCoords.length-1));
+    }else{
+      // 現在頂点→次ステップ始点までのルート距離 + 自分→現在頂点のズレ
+      distAheadM = bestVertexDistM + Math.max(0, polySegMeters(this.routeCoords, bestVertexIdx, Math.max(bestVertexIdx, startIdx)));
+    }
+
+    // 事前案内
+    if(distAheadM<=this._preAnnounceDistM && (!this._stepSpoken[iNext] || !this._stepSpoken[iNext].pre)){
+      const txt = step.text || '進みます';
+      // 出発/到着は事前案内スキップ
+      if(!/^出発します$/.test(txt) && !/^目的地に到着します$/.test(txt)){
+        TTS.speak('まもなく、' + txt + '。' + Math.max(10, Math.round(distAheadM/10)*10) + 'メートル先です');
+        this._stepSpoken[iNext] = Object.assign({}, this._stepSpoken[iNext], {pre:true});
+      }else{
+        // main だけに任せる
+        this._stepSpoken[iNext] = Object.assign({}, this._stepSpoken[iNext], {pre:true});
+      }
+    }
+
+    // 直前/直上案内
+    if(distAheadM<=this._nearAnnounceM && (!this._stepSpoken[iNext] || !this._stepSpoken[iNext].main)){
+      const txt = step.text || '進みます';
+      TTS.speak(txt);
+      this._stepSpoken[iNext] = Object.assign({}, this._stepSpoken[iNext], {main:true});
+    }
+  }
+
   async _rerouteFrom(fromPos){
     try{
       var goal=this.dest; if(!goal) return;
@@ -302,6 +462,9 @@ export class NavigationController {
       try{
         const payload={ coordinates:[[fromPos.lng,fromPos.lat],[goal.lng,goal.lat]], profile:'driving-car', avoidTolls:true };
         data = await this._fetchORS_POST(payload);
+
+        // capture steps first
+        this._captureStepsFromAny(data);
 
         if (data && data.type==='FeatureCollection'){
           const fc = extractFromORSFeatureCollection(data);
@@ -317,6 +480,10 @@ export class NavigationController {
       }catch(e1){
         // Fallback: ORS GET (FeatureCollection via worker)
         data = await this._fetchORS_GET(fromPos, goal);
+
+        // capture steps first
+        this._captureStepsFromAny(data);
+
         if (data && data.type==='FeatureCollection'){
           const fc = extractFromORSFeatureCollection(data);
           coords = fc.coords;
@@ -351,6 +518,9 @@ export class NavigationController {
       const payload={ coordinates:[[startPos.lng,startPos.lat],[this.dest.lng,this.dest.lat]], profile:'driving-car', avoidTolls:true };
       data = await this._fetchORS_POST(payload);
 
+      // capture steps first
+      this._captureStepsFromAny(data);
+
       if (data && data.type==='FeatureCollection'){
         const fc = extractFromORSFeatureCollection(data);
         coords = fc.coords;
@@ -366,6 +536,10 @@ export class NavigationController {
       try{
         // Fallback: ORS GET -> FeatureCollection
         data = await this._fetchORS_GET(startPos, this.dest);
+
+        // capture steps first
+        this._captureStepsFromAny(data);
+
         if (data && data.type==='FeatureCollection'){
           const fc = extractFromORSFeatureCollection(data);
           coords = fc.coords;
@@ -406,6 +580,7 @@ export class NavigationController {
     this._stopGeoWatch();
     this.routeCoords=[];
     this.totalM=NaN; this.totalS=NaN;
+    this.routeSteps=[]; this._stepSpoken={};
     try{ if(this.mapCtrl && typeof this.mapCtrl.clearRoute==='function') this.mapCtrl.clearRoute(); }catch(e){}
     emitHud(NaN, 0, '待機中');
     try{ if (wasActive) TTS.speak('案内を終了します'); }catch(e){}
