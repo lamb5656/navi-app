@@ -1,9 +1,5 @@
-// /browser-navi/js/nav.js
-// Android WebView friendly. English-only comments.
-
 import { API_BASE } from '../config.js';
 
-// ---- utils ----
 function nowMs(){ return Date.now(); }
 function toRad(d){ return d*Math.PI/180; }
 function clamp(v,a,b){ return Math.max(a, Math.min(b,v)); }
@@ -23,7 +19,6 @@ function lineLengthMeters(coords){
   return sum;
 }
 
-// ---- polyline / geometry ----
 function decodePolyline(str,factor){
   var i=0, lat=0, lng=0, out=[], shift, result, byte, dlat, dlng;
   try{
@@ -75,6 +70,8 @@ function extractSummaryFromORS(r0){
   }
   return {distance:dist, duration:dur};
 }
+
+// OSRM helper (kept for compatibility; not used when proxy returns FeatureCollection)
 function extractFromOSRM(data){
   var out={coords:[], distance:NaN, duration:NaN};
   if(!data||!data.routes||!data.routes[0]) return out;
@@ -82,6 +79,23 @@ function extractFromOSRM(data){
   out.distance=Number(r0.distance!=null?r0.distance:NaN);
   out.duration=Number(r0.duration!=null?r0.duration:NaN);
   if(r0.geometry) out.coords=tryDecodeAnyGeometry(r0.geometry);
+  return out;
+}
+
+// ---- ORS FeatureCollection helper (proxy GET/POST may return this) ----
+function extractFromORSFeatureCollection(data){
+  const out = { coords: [], distance: NaN, duration: NaN };
+  if (!data || data.type !== 'FeatureCollection' || !Array.isArray(data.features) || !data.features[0]) return out;
+  const f = data.features[0];
+  if (f.geometry && f.geometry.type === 'LineString' && Array.isArray(f.geometry.coordinates)) {
+    out.coords = f.geometry.coordinates;
+  }
+  // openrouteservice style segments summary embedded
+  const seg = f.properties && f.properties.segments && f.properties.segments[0];
+  if (seg) {
+    if (seg.distance != null) out.distance = Number(seg.distance);
+    if (seg.duration != null) out.duration = Number(seg.duration);
+  }
   return out;
 }
 
@@ -111,7 +125,7 @@ function emitHud(remainMeters, etaSeconds, statusJa){
     eta: (isFinite(etaSeconds) && etaSeconds > 0) ? (Date.now() + Math.round(etaSeconds * 1000)) : null,
     status: statusJa
   };
-  try { window.dispatchEvent(new CustomEvent('hud:update', { detail: detail })); } catch (e) {}
+  try { window.dispatchEvent(new CustomEvent('hud:update', { detail })); } catch (e) {}
 }
 
 // ---- NavigationController ----
@@ -131,7 +145,7 @@ export class NavigationController {
 
     this._hudTimer = null;
     this._offRouteThresholdM = 80;
-    this._rerouteCooldownMs = 6000;
+    this._rerouteCooldownMs = 12000; // increase a bit to avoid thrash
     this._lastRerouteAt = 0;
   }
 
@@ -142,50 +156,65 @@ export class NavigationController {
     return API_BASE.replace(/\/+$/,'') + '/route?start='+start.lng+','+start.lat+'&goal='+goal.lng+','+goal.lat;
   }
 
-  async _fetchORS(payload){
-    var url = API_BASE.replace(/\/+$/,'') + '/route';
-    var r = await fetch(url,{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
-    if(!r.ok) throw new Error('ORS route failed');
+  async _fetchORS_POST(payload){
+    const url = API_BASE.replace(/\/+$/,'') + '/route';
+    const r = await fetch(url,{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+    if(!r.ok) throw new Error('ORS POST failed: '+r.status);
     return r.json();
   }
-  async _fetchOSRM(start,goal){
-    var r = await fetch(this._buildGetUrl(start,goal));
-    if(!r.ok) throw new Error('OSRM route failed');
+  async _fetchORS_GET(start,goal){
+    const r = await fetch(this._buildGetUrl(start,goal));
+    if(!r.ok) throw new Error('ORS GET failed: '+r.status);
     return r.json();
   }
 
-  _applyRoute(coords){
-    this.routeCoords = coords||[];
-    var geo = {
-      type:'FeatureCollection',
-      features: this.routeCoords.length>1 ? [{ type:'Feature', geometry:{ type:'LineString', coordinates:this.routeCoords }, properties:{} }] : []
-    };
-    try { if(this.mapCtrl && typeof this.mapCtrl.drawRoute==='function') this.mapCtrl.drawRoute(geo); } catch(e){}
-  }
-
-  _computeTotalIfMissing(data){
-    var r0 = (data && data.routes && data.routes[0]) ? data.routes[0] : null;
-    var sum = extractSummaryFromORS(r0);
-    this.totalM = Number(sum.distance!=null ? sum.distance : NaN);
-    this.totalS = Number(sum.duration!=null ? sum.duration : NaN);
-
-    var need = !(isFinite(this.totalM) && this.totalM>0);
-    if(need){
-      var coords = r0 ? extractRouteCoordsFromORS(r0) : [];
-      if((!coords||coords.length<2) && data && data.routes){
-        var osrmAlt = extractFromOSRM(data);
-        if(osrmAlt && osrmAlt.coords && osrmAlt.coords.length>1){
-          coords=osrmAlt.coords;
-          if(!isFinite(this.totalM)||!(this.totalM>0)) this.totalM=osrmAlt.distance;
-          if(!isFinite(this.totalS)||!(this.totalS>0)) this.totalS=osrmAlt.duration;
-        }
-      }
-      if(coords && coords.length>1){
-        var L=lineLengthMeters(coords);
-        if(!isFinite(this.totalM)||!(this.totalM>0)) this.totalM=L;
-        if(!isFinite(this.totalS)||!(this.totalS>0)) this.totalS=(L/(50*1000))*3600; // rough 50 km/h
-      }
+  _applyRoute(coordsOrFc){
+    // Accept coords array or FeatureCollection and draw
+    let fc;
+    if (coordsOrFc && coordsOrFc.type==='FeatureCollection') {
+      fc = coordsOrFc;
+      // set coords from fc for internal metrics
+      const ext = extractFromORSFeatureCollection(fc);
+      this.routeCoords = ext.coords || [];
+      if (!isFinite(this.totalM) || !(this.totalM>0)) this.totalM = ext.distance;
+      if (!isFinite(this.totalS) || !(this.totalS>0)) this.totalS = ext.duration;
+    } else {
+      const coords = coordsOrFc || [];
+      this.routeCoords = coords;
+      fc = {
+        type:'FeatureCollection',
+        features: this.routeCoords.length>1 ? [{ type:'Feature', geometry:{ type:'LineString', coordinates:this.routeCoords }, properties:{} }] : []
+      };
     }
+    try { if(this.mapCtrl && typeof this.mapCtrl.drawRoute==='function') this.mapCtrl.drawRoute(fc); } catch(e){}
+  }
+
+  _computeTotalsFromAny(data, coordsFallback){
+    // Try ORS routes[0] first
+    let r0 = (data && data.routes && data.routes[0]) ? data.routes[0] : null;
+    let sum = extractSummaryFromORS(r0);
+    let totalM = Number(sum.distance!=null ? sum.distance : NaN);
+    let totalS = Number(sum.duration!=null ? sum.duration : NaN);
+
+    // If FeatureCollection
+    if (!isFinite(totalM) || !isFinite(totalS)) {
+      const fc = extractFromORSFeatureCollection(data);
+      if (isFinite(fc.distance)) totalM = fc.distance;
+      if (isFinite(fc.duration)) totalS = fc.duration;
+      if ((!coordsFallback || coordsFallback.length<2) && fc.coords && fc.coords.length>1) coordsFallback = fc.coords;
+    }
+
+    // As last resort, compute from geometry
+    if((!isFinite(totalM) || totalM<=0) && coordsFallback && coordsFallback.length>1){
+      totalM = lineLengthMeters(coordsFallback);
+    }
+    if((!isFinite(totalS) || totalS<=0) && isFinite(totalM) && totalM>0){
+      totalS = (totalM/(50*1000))*3600; // rough 50 km/h
+    }
+
+    this.totalM = totalM;
+    this.totalS = totalS;
+    return coordsFallback;
   }
 
   _startHud(){
@@ -194,8 +223,9 @@ export class NavigationController {
     this._hudTimer = setInterval(function(){
       if(!self.active) return;
       var pos = self.hereLast ? self.hereLast : (self.hereInitial ? {lng:self.hereInitial[0], lat:self.hereInitial[1]} : null);
-      if(!pos) return;
+      if(!pos || !self.routeCoords || self.routeCoords.length<2) return;
 
+      // nearest vertex (simple, cheap)
       var best=-1, bestD=Infinity;
       for(var i=0;i<self.routeCoords.length;i++){
         var c=self.routeCoords[i];
@@ -203,19 +233,24 @@ export class NavigationController {
         if(d<bestD){ bestD=d; best=i; }
       }
 
+      // remaining distance (vertex-to-vertex sum)
       var remain=0;
       for(var j=Math.max(0,best); j<self.routeCoords.length-1; j++){
         remain += haversineMeters({lat:self.routeCoords[j][1],lng:self.routeCoords[j][0]}, {lat:self.routeCoords[j+1][1],lng:self.routeCoords[j+1][0]});
       }
       if(!isFinite(remain)||remain<0) remain=0;
 
-      var eta=0;
+      // ETA proportional to remaining ratio
+      let etaSec=0;
       if(isFinite(self.totalM)&&self.totalM>0 && isFinite(self.totalS)&&self.totalS>0){
-        eta = self.totalS * clamp(remain/self.totalM,0,1);
+        etaSec = self.totalS * clamp(remain/self.totalM,0,1);
       }
 
-      emitHud(remain, eta, '案内中');
+      // status & emit
+      const status = (bestD>self._offRouteThresholdM) ? 'コース外' : '案内中';
+      emitHud(remain, etaSec, status);
 
+      // auto re-route with cooldown
       if(bestD>self._offRouteThresholdM){
         var t=nowMs();
         if(t-self._lastRerouteAt>self._rerouteCooldownMs){
@@ -223,6 +258,13 @@ export class NavigationController {
           self._rerouteFrom(pos);
         }
       }
+
+      // follow user (non-centering to avoid jank on each tick)
+      try{
+        if(self.mapCtrl && typeof self.mapCtrl.followUser==='function'){
+          self.mapCtrl.followUser([pos.lng, pos.lat], { center:false, zoom:null });
+        }
+      }catch(e){}
     },1000);
   }
   _stopHud(){ if(this._hudTimer) clearInterval(this._hudTimer); this._hudTimer=null; }
@@ -236,12 +278,12 @@ export class NavigationController {
         self.hereLast = { lng: p.coords.longitude, lat: p.coords.latitude };
         try{
           if(self.mapCtrl && typeof self.mapCtrl.followUser==='function'){
-            self.mapCtrl.followUser([self.hereLast.lng, self.hereLast.lat], { center:true, zoom:null });
+            self.mapCtrl.followUser([self.hereLast.lng, self.hereLast.lat], { center:true, zoom:16 });
           }
         }catch(e){}
       },
       function(){},
-      { enableHighAccuracy:true, timeout:10000, maximumAge:2000 }
+      { enableHighAccuracy:true, timeout:12000, maximumAge:3000 }
     );
   }
   _stopGeoWatch(){
@@ -254,25 +296,46 @@ export class NavigationController {
   async _rerouteFrom(fromPos){
     try{
       var goal=this.dest; if(!goal) return;
-      var payload={ coordinates:[[fromPos.lng,fromPos.lat],[goal.lng,goal.lat]], profile:'driving-car', avoidTolls:true };
-      var data=null, coords=[];
+
+      // Try ORS POST first (proxy may also return FeatureCollection)
+      let data=null, coords=[];
       try{
-        data = await this._fetchORS(payload);
-        var r0 = (data && data.routes && data.routes[0]) ? data.routes[0] : null;
-        coords = extractRouteCoordsFromORS(r0);
-        if(!coords || coords.length<2) throw new Error('empty ors coords');
-        this._computeTotalIfMissing(data);
+        const payload={ coordinates:[[fromPos.lng,fromPos.lat],[goal.lng,goal.lat]], profile:'driving-car', avoidTolls:true };
+        data = await this._fetchORS_POST(payload);
+
+        if (data && data.type==='FeatureCollection'){
+          const fc = extractFromORSFeatureCollection(data);
+          coords = fc.coords;
+          this.totalM = fc.distance; this.totalS = fc.duration;
+          if(!coords || coords.length<2) throw new Error('empty FC coords');
+        } else {
+          const r0 = (data && data.routes && data.routes[0]) ? data.routes[0] : null;
+          coords = extractRouteCoordsFromORS(r0);
+          if(!coords || coords.length<2) throw new Error('empty ORS coords');
+          this._computeTotalsFromAny(data, coords);
+        }
       }catch(e1){
-        data = await this._fetchOSRM(fromPos, goal);
-        var osrm = extractFromOSRM(data);
-        coords = osrm.coords;
-        if(!coords || coords.length<2) throw new Error('empty osrm coords');
-        if(!isFinite(this.totalM)||!(this.totalM>0)) this.totalM=osrm.distance;
-        if(!isFinite(this.totalS)||!(this.totalS>0)) this.totalS=osrm.duration;
+        // Fallback: ORS GET (FeatureCollection via worker)
+        data = await this._fetchORS_GET(fromPos, goal);
+        if (data && data.type==='FeatureCollection'){
+          const fc = extractFromORSFeatureCollection(data);
+          coords = fc.coords;
+          this.totalM = fc.distance; this.totalS = fc.duration;
+        } else {
+          // as a last resort try OSRM shape if server was OSRM
+          const osrm = extractFromOSRM(data);
+          coords = osrm.coords;
+          if(!isFinite(this.totalM)||!(this.totalM>0)) this.totalM=osrm.distance;
+          if(!isFinite(this.totalS)||!(this.totalS>0)) this.totalS=osrm.duration;
+        }
+        if(!coords || coords.length<2) throw new Error('empty coords after GET');
       }
+
       this._applyRoute(coords);
       TTS.speak('ルートを再検索しました');
-    }catch(e){}
+    }catch(e){
+      // swallow
+    }
   }
 
   async start(){
@@ -282,22 +345,39 @@ export class NavigationController {
                  : (this.hereInitial ? { lng:this.hereInitial[0], lat:this.hereInitial[1] }
                  : { lng:139.767, lat:35.681 });
 
-    var payload={ coordinates:[[startPos.lng,startPos.lat],[this.dest.lng,this.dest.lat]], profile:'driving-car', avoidTolls:true };
-    var data=null, coords=[];
+    // Try ORS POST first
+    let data=null, coords=[];
     try{
-      data = await this._fetchORS(payload);
-      var r0 = (data && data.routes && data.routes[0]) ? data.routes[0] : null;
-      coords = extractRouteCoordsFromORS(r0);
-      if(!coords||coords.length<2) throw new Error('empty ors coords');
-      this._computeTotalIfMissing(data);
+      const payload={ coordinates:[[startPos.lng,startPos.lat],[this.dest.lng,this.dest.lat]], profile:'driving-car', avoidTolls:true };
+      data = await this._fetchORS_POST(payload);
+
+      if (data && data.type==='FeatureCollection'){
+        const fc = extractFromORSFeatureCollection(data);
+        coords = fc.coords;
+        this.totalM = fc.distance; this.totalS = fc.duration;
+        if(!coords||coords.length<2) throw new Error('empty FC coords');
+      } else {
+        const r0 = (data && data.routes && data.routes[0]) ? data.routes[0] : null;
+        coords = extractRouteCoordsFromORS(r0);
+        if(!coords||coords.length<2) throw new Error('empty ORS coords');
+        this._computeTotalsFromAny(data, coords);
+      }
     }catch(e1){
       try{
-        data = await this._fetchOSRM(startPos, this.dest);
-        var osrm=extractFromOSRM(data);
-        coords=osrm.coords;
-        if(!coords||coords.length<2) throw new Error('empty osrm coords');
-        if(!isFinite(this.totalM)||!(this.totalM>0)) this.totalM=osrm.distance;
-        if(!isFinite(this.totalS)||!(this.totalS>0)) this.totalS=osrm.duration;
+        // Fallback: ORS GET -> FeatureCollection
+        data = await this._fetchORS_GET(startPos, this.dest);
+        if (data && data.type==='FeatureCollection'){
+          const fc = extractFromORSFeatureCollection(data);
+          coords = fc.coords;
+          this.totalM = fc.distance; this.totalS = fc.duration;
+        } else {
+          // last resort if server was OSRM
+          const osrm=extractFromOSRM(data);
+          coords=osrm.coords;
+          if(!isFinite(this.totalM)||!(this.totalM>0)) this.totalM=osrm.distance;
+          if(!isFinite(this.totalS)||!(this.totalS>0)) this.totalS=osrm.duration;
+        }
+        if(!coords||coords.length<2) throw new Error('empty coords after GET');
       }catch(e2){
         this.stop();
         TTS.speak('ルートを取得できませんでした');
@@ -306,6 +386,7 @@ export class NavigationController {
       }
     }
 
+    // Draw & go
     this._applyRoute(coords);
 
     this.active=true;
@@ -314,6 +395,7 @@ export class NavigationController {
 
     try{ TTS.unlockOnce(); TTS.speak('ナビを開始します'); }catch(e){}
 
+    // initial HUD (remain = totalM, eta = totalS)
     emitHud(this.totalM, this.totalS, '案内中');
   }
 

@@ -27,5 +27,6 @@ export function createHUD() {
     if (els.status)     els.status.textContent     = '待機中';
   }
   reset();
+  try { window.addEventListener('hud:update', e => update(e.detail)); } catch {}
   return { update, setStatus, reset };
 }
