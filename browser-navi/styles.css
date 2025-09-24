@@ -212,7 +212,7 @@ button.btn-choose{
   right: 16px;
   bottom: calc(var(--map-bottom) + 16px);
   width: 46px;
-  height: 46px;
+  height: 56px;
   display: grid;
   place-items: center;
   border: 1px solid var(--border);
